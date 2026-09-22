@@ -6,7 +6,7 @@ struct RelayApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            SessionListView()
                 .task {
                     PushNotifications.requestAuthorizationAndRegister()
                 }
