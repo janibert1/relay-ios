@@ -294,6 +294,7 @@ struct ChatView: View {
                                 isRawSnapshot: detail.transcriptMode == "raw_snapshot",
                                 backendName: detail.backend.displayName
                             )
+                            .equatable()
                             .id(index)
                         }
                     }
@@ -396,7 +397,18 @@ struct ChatView: View {
         do {
             let detail = try await apiClient.getSessionDetail(sessionName: sessionName)
             if !Task.isCancelled {
-                self.sessionDetail = detail
+                // Skip the assignment entirely when nothing actually changed —
+                // on a long, mostly-idle session this poll fires every 3s
+                // forever, and re-assigning an equal-but-new SessionDetail
+                // still forces SwiftUI to re-diff every turn row, which was
+                // re-parsing markdown (AttributedString(markdown:), not
+                // cheap) for EVERY turn on EVERY poll regardless of whether
+                // it changed — the real cause of "app lags on long sessions"
+                // (2026-09-22). Turn/SessionDetail are both already
+                // Equatable, so this is a cheap value comparison.
+                if detail != self.sessionDetail {
+                    self.sessionDetail = detail
+                }
                 self.errorMessage = nil
             }
         } catch {
@@ -462,7 +474,7 @@ private func markdownText(_ text: String) -> AttributedString {
 
 // MARK: - Turn Row & Bubble Views
 
-private struct ChatTurnRow: View {
+private struct ChatTurnRow: View, Equatable {
     let turn: Turn
     let isRawSnapshot: Bool
     let backendName: String
@@ -946,9 +958,12 @@ struct DowngradeSheet: View {
 
                         Section(header: Text("Free Model (optional)").foregroundColor(ChatTheme.textDim)) {
                             Picker("Model", selection: $selectedModel) {
-                                Text("(auto-cascade default)").tag("")
+                                if !freeModels.contains(where: { $0.idValue == "" }) {
+                                    Text("(auto-cascade default)").tag("")
+                                }
                                 ForEach(freeModels) { option in
-                                    Text(option.label).tag(option.idValue)
+                                    Text(option.isDefault ? "\(option.label)  ★ best" : option.label)
+                                        .tag(option.idValue)
                                 }
                             }
                             .pickerStyle(.menu)

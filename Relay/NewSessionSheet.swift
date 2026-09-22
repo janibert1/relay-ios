@@ -29,7 +29,7 @@ struct NewSessionSheet: View {
 
     // MARK: - Constants
 
-    private let availableBackends: [BackendId] = [.claude, .codex, .gemini]
+    private let availableBackends: [BackendId] = [.claude, .codex, .gemini, .openrouter]
 
     private let effortOptions: [(value: String, label: String)] = [
         ("", "default"),
@@ -133,7 +133,9 @@ struct NewSessionSheet: View {
                     .frame(width: 7, height: 7)
                     .padding(.top, 4)
 
-                Text("Backend is locked in once created — you can change model any time, and can always drop down to a free OpenRouter model later, but never back up to a paid backend.")
+                Text(selectedBackend == .openrouter
+                     ? "OpenRouter is free, no subscription needed — good for quick/simple chats. Claude, Codex, and Gemini are the paid backends; any of them can drop down to a free OpenRouter model later, but never back up to a paid one."
+                     : "Backend is locked in once created — you can change model any time, and can always drop down to a free OpenRouter model later, but never back up to a paid backend.")
                     .font(.system(size: 12))
                     .foregroundColor(dimTextColor)
                     .lineSpacing(2)
@@ -231,10 +233,18 @@ struct NewSessionSheet: View {
                             .progressViewStyle(.circular)
                             .scaleEffect(0.8)
                     } else {
+                        // Some backends (e.g. OpenRouter's "Auto") already list a
+                        // real model at id "" that IS the default — only add the
+                        // synthetic "(default)" row when nothing in the fetched
+                        // list already covers that tag, so the menu never shows
+                        // two indistinguishable "" entries.
                         Picker("Model", selection: $selectedModel) {
-                            Text("(default)").tag("")
+                            if !models.contains(where: { $0.id == "" }) {
+                                Text(defaultRowLabel).tag("")
+                            }
                             ForEach(models) { model in
-                                Text(model.label).tag(model.id)
+                                Text(model.isDefault ? "\(model.label)  ★ best" : model.label)
+                                    .tag(model.id)
                             }
                         }
                         .pickerStyle(.menu)
@@ -244,34 +254,36 @@ struct NewSessionSheet: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
 
-                Divider()
-                    .background(cardBorder)
-                    .padding(.horizontal, 14)
+                if selectedBackend != .openrouter {
+                    Divider()
+                        .background(cardBorder)
+                        .padding(.horizontal, 14)
 
-                // Effort Picker Row
-                HStack {
-                    HStack(spacing: 6) {
-                        Text("Effort")
-                            .font(.system(size: 16))
-                            .foregroundColor(primaryTextColor)
+                    // Effort Picker Row — OpenRouter has no effort concept at all
+                    HStack {
+                        HStack(spacing: 6) {
+                            Text("Effort")
+                                .font(.system(size: 16))
+                                .foregroundColor(primaryTextColor)
 
-                        Text("optional")
-                            .font(.system(size: 11))
-                            .foregroundColor(dimTextColor)
-                    }
-
-                    Spacer()
-
-                    Picker("Effort", selection: $selectedEffort) {
-                        ForEach(effortOptions, id: \.value) { option in
-                            Text(option.label).tag(option.value)
+                            Text("optional")
+                                .font(.system(size: 11))
+                                .foregroundColor(dimTextColor)
                         }
+
+                        Spacer()
+
+                        Picker("Effort", selection: $selectedEffort) {
+                            ForEach(effortOptions, id: \.value) { option in
+                                Text(option.label).tag(option.value)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(currentAccentColor)
                     }
-                    .pickerStyle(.menu)
-                    .tint(currentAccentColor)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
             }
             .background(cardBackground)
             .cornerRadius(10)
@@ -371,6 +383,13 @@ struct NewSessionSheet: View {
 
     private var canSubmit: Bool {
         isNameFormatValid && !isSubmitting
+    }
+
+    private var defaultRowLabel: String {
+        if let best = models.first(where: { $0.isDefault }) {
+            return "(default — \(best.label))"
+        }
+        return "(default)"
     }
 
     private var currentAccentColor: Color {

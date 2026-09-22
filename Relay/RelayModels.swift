@@ -253,15 +253,25 @@ struct ModelOption: Codable, Identifiable, Equatable, Hashable {
     var id: String { self.idValue }
     let idValue: String
     let label: String
+    let isDefault: Bool
 
     enum CodingKeys: String, CodingKey {
         case idValue = "id"
         case label
+        case isDefault = "is_default"
     }
 
-    init(id: String, label: String) {
+    init(id: String, label: String, isDefault: Bool = false) {
         self.idValue = id
         self.label = label
+        self.isDefault = isDefault
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        idValue = try c.decode(String.self, forKey: .idValue)
+        label = try c.decode(String.self, forKey: .label)
+        isDefault = try c.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
     }
 }
 
