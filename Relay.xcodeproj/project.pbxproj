@@ -11,6 +11,7 @@
 		70F431ED6F20B49E615FA062 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5842EF6D1A01A0D960C73D95 /* RootView.swift */; };
 		B31632F6BE3C8371947855E5 /* WebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C88E3BABE72556B7700540 /* WebView.swift */; };
 		44D35376D571F2F897AE1A42 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B06D26090891ADC0DE5998B2 /* Assets.xcassets */; };
+		B3569338D0EDA27BDC776530 /* PushNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E7DD56C453AE712A8F320A /* PushNotifications.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +21,8 @@
 		B06D26090891ADC0DE5998B2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5FFD644F3142B1CF931BA0ED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		80014118E9C69039BC98245B /* Relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Relay.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		74E7DD56C453AE712A8F320A /* PushNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotifications.swift; sourceTree = "<group>"; };
+		C199EB13D51202A8495C4E35 /* Relay.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Relay.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -55,8 +58,10 @@
 				3EC1C60F7F5D8989E26D1C5E /* RelayApp.swift */,
 				5842EF6D1A01A0D960C73D95 /* RootView.swift */,
 				B3C88E3BABE72556B7700540 /* WebView.swift */,
+				74E7DD56C453AE712A8F320A /* PushNotifications.swift */,
 				B06D26090891ADC0DE5998B2 /* Assets.xcassets */,
 				5FFD644F3142B1CF931BA0ED /* Info.plist */,
+				C199EB13D51202A8495C4E35 /* Relay.entitlements */,
 			);
 			path = Relay;
 			sourceTree = "<group>";
@@ -133,6 +138,7 @@
 				763F4507A681E31B229DF9A3 /* RelayApp.swift in Sources */,
 				70F431ED6F20B49E615FA062 /* RootView.swift in Sources */,
 				B31632F6BE3C8371947855E5 /* WebView.swift in Sources */,
+				B3569338D0EDA27BDC776530 /* PushNotifications.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -195,6 +201,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Relay/Relay.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -219,6 +226,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Relay/Relay.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
