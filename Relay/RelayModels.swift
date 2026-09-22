@@ -78,6 +78,12 @@ struct DowngradeRequest: Codable, Equatable {
     }
 }
 
+struct ToolCall: Codable, Identifiable, Equatable {
+    var id: String { name + summary }
+    let name: String
+    let summary: String
+}
+
 struct Turn: Codable, Identifiable, Equatable {
     var id: String { (timestamp ?? "") + text.prefix(20) }  // synthetic, turns have no real id
     let role: String  // "user" | "assistant" | "error"
@@ -85,11 +91,13 @@ struct Turn: Codable, Identifiable, Equatable {
     let timestamp: String?
     let costUsd: Double?
     let isError: Bool
+    let toolCalls: [ToolCall]
 
     enum CodingKeys: String, CodingKey {
         case role, text, timestamp
         case costUsd = "cost_usd"
         case isError = "is_error"
+        case toolCalls = "tool_calls"
     }
 
     init(
@@ -97,13 +105,25 @@ struct Turn: Codable, Identifiable, Equatable {
         text: String,
         timestamp: String? = nil,
         costUsd: Double? = nil,
-        isError: Bool = false
+        isError: Bool = false,
+        toolCalls: [ToolCall] = []
     ) {
         self.role = role
         self.text = text
         self.timestamp = timestamp
         self.costUsd = costUsd
         self.isError = isError
+        self.toolCalls = toolCalls
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        role = try c.decode(String.self, forKey: .role)
+        text = try c.decode(String.self, forKey: .text)
+        timestamp = try c.decodeIfPresent(String.self, forKey: .timestamp)
+        costUsd = try c.decodeIfPresent(Double.self, forKey: .costUsd)
+        isError = try c.decodeIfPresent(Bool.self, forKey: .isError) ?? false
+        toolCalls = try c.decodeIfPresent([ToolCall].self, forKey: .toolCalls) ?? []
     }
 }
 

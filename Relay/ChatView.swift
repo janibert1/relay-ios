@@ -443,6 +443,23 @@ struct ChatView: View {
     }
 }
 
+// MARK: - Markdown rendering
+
+private func markdownText(_ text: String) -> AttributedString {
+    var options = AttributedString.MarkdownParsingOptions()
+    options.interpretedSyntax = .full
+    options.failurePolicy = .returnPartiallyParsedIfPossible
+    guard var attributed = try? AttributedString(markdown: text, options: options) else {
+        return AttributedString(text)
+    }
+    for run in attributed.runs {
+        if run.link != nil {
+            attributed[run.range].foregroundColor = ChatTheme.codex
+        }
+    }
+    return attributed
+}
+
 // MARK: - Turn Row & Bubble Views
 
 private struct ChatTurnRow: View {
@@ -451,14 +468,22 @@ private struct ChatTurnRow: View {
     let backendName: String
 
     var body: some View {
-        if isRawSnapshot && turn.role != "user" {
-            rawTerminalBlock
-        } else if turn.role == "user" {
-            userBubble
-        } else if turn.role == "error" || turn.isError {
-            errorBubble
-        } else {
-            assistantBubble
+        VStack(alignment: .leading, spacing: 4) {
+            if !turn.toolCalls.isEmpty && turn.role != "user" {
+                HStack {
+                    ToolCallsSummaryRow(toolCalls: turn.toolCalls)
+                    Spacer(minLength: 44)
+                }
+            }
+            if isRawSnapshot && turn.role != "user" {
+                rawTerminalBlock
+            } else if turn.role == "user" {
+                userBubble
+            } else if turn.role == "error" || turn.isError {
+                errorBubble
+            } else {
+                assistantBubble
+            }
         }
     }
 
@@ -481,7 +506,7 @@ private struct ChatTurnRow: View {
     private var assistantBubble: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(turn.text)
+                Text(markdownText(turn.text))
                     .font(.system(size: 15))
                     .foregroundColor(ChatTheme.textPrimary)
                     .lineSpacing(3)
@@ -518,7 +543,7 @@ private struct ChatTurnRow: View {
                 }
                 .foregroundColor(ChatTheme.danger)
 
-                Text(turn.text)
+                Text(markdownText(turn.text))
                     .font(.system(size: 15))
                     .foregroundColor(ChatTheme.danger)
                     .lineSpacing(3)
@@ -563,6 +588,76 @@ private struct ChatTurnRow: View {
                 .stroke(ChatTheme.border, lineWidth: 1)
         )
         .cornerRadius(8)
+    }
+}
+
+// MARK: - "Ran N commands" summary (collapsed tool-call list per turn)
+
+private struct ToolCallsSummaryRow: View {
+    let toolCalls: [ToolCall]
+    @State private var showingSheet = false
+
+    private static let readishNames: Set<String> = [
+        "view_file", "read_file", "Read", "find_by_name", "grep_search", "list_dir",
+    ]
+
+    private var label: String {
+        let count = toolCalls.count
+        let ranPart = count == 1 ? "Ran 1 command" : "Ran \(count) commands"
+        let hasRead = toolCalls.contains { Self.readishNames.contains($0.name) }
+        return hasRead ? "Read a file, \(ranPart.lowercased())" : ranPart
+    }
+
+    var body: some View {
+        Button {
+            showingSheet = true
+        } label: {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.system(size: 12))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .foregroundColor(ChatTheme.textDim)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showingSheet) {
+            ToolCallsSheet(toolCalls: toolCalls)
+        }
+    }
+}
+
+private struct ToolCallsSheet: View {
+    let toolCalls: [ToolCall]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(toolCalls) { call in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(call.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(ChatTheme.textPrimary)
+                    Text(call.summary)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(ChatTheme.textDim)
+                        .textSelection(.enabled)
+                        .lineLimit(3)
+                }
+                .padding(.vertical, 2)
+                .listRowBackground(ChatTheme.cardBackground)
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(ChatTheme.background)
+            .navigationTitle("Ran \(toolCalls.count) command\(toolCalls.count == 1 ? "" : "s")")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }
 
