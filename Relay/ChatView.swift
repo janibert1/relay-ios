@@ -1,4 +1,18 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
+
+/// A file/photo already uploaded via POST /api/sessions/{name}/files,
+/// waiting to be attached to the NEXT message sent. Upload happens
+/// immediately on picking (not deferred to send-time) since the backend
+/// already needs the file to exist on disk before a message referencing
+/// it makes sense.
+private struct PendingAttachment: Identifiable, Equatable {
+    let id = UUID()
+    let relayPath: String
+    let displayName: String
+    let warning: String?
+}
 
 // MARK: - Design Theme Constants
 
@@ -51,6 +65,16 @@ struct ChatView: View {
     @State private var isShowingModelSwitchSheet = false
     @State private var isShowingDowngradeSheet = false
     @State private var pollTask: Task<Void, Never>?
+
+    // File/photo attach — built 2026-09-22, Jan: "im missing the file and
+    // photo upload." The API client (uploadFile/sendMessage filePaths:)
+    // already existed from the original build; there was just never any
+    // UI to actually pick something and call it.
+    @State private var pendingAttachments: [PendingAttachment] = []
+    @State private var isUploadingAttachment = false
+    @State private var attachError: String?
+    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var isShowingFileImporter = false
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -112,6 +136,27 @@ struct ChatView: View {
                     await loadDetail()
                 }
             }, apiClient: apiClient)
+        }
+        .fileImporter(
+            isPresented: $isShowingFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    Task { await uploadPickedFile(url: url) }
+                }
+            case .failure(let error):
+                attachError = error.localizedDescription
+            }
+        }
+        .onChange(of: photoPickerItem) { newItem in
+            guard let newItem else { return }
+            Task {
+                await uploadPickedPhoto(item: newItem)
+                photoPickerItem = nil
+            }
         }
     }
 
@@ -325,7 +370,38 @@ struct ChatView: View {
             Divider()
                 .background(ChatTheme.border)
 
+            if !pendingAttachments.isEmpty || isUploadingAttachment {
+                attachmentChipRow
+            }
+
+            if let attachError {
+                HStack {
+                    Text(attachError)
+                        .font(.system(size: 12))
+                        .foregroundColor(ChatTheme.danger)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+            }
+
             HStack(alignment: .bottom, spacing: 8) {
+                Menu {
+                    Button {
+                        isShowingFileImporter = true
+                    } label: {
+                        Label("Choose File", systemImage: "doc")
+                    }
+                    PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                        Label("Photo Library", systemImage: "photo")
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(ChatTheme.textDim)
+                }
+                .disabled(isUploadingAttachment)
+
                 TextField("Message...", text: $inputMessage, axis: .vertical)
                     .lineLimit(1...5)
                     .padding(.horizontal, 14)
@@ -373,7 +449,96 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        !isBusy && !isSending && !inputMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasContent = !inputMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !pendingAttachments.isEmpty
+        return !isBusy && !isSending && !isUploadingAttachment && hasContent
+    }
+
+    private var attachmentChipRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                if isUploadingAttachment {
+                    HStack(spacing: 6) {
+                        ProgressView().scaleEffect(0.7)
+                        Text("Uploading…")
+                            .font(.system(size: 12))
+                            .foregroundColor(ChatTheme.textDim)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(ChatTheme.cardBackground)
+                    .cornerRadius(14)
+                }
+                ForEach(pendingAttachments) { attachment in
+                    HStack(spacing: 5) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 11))
+                        Text(attachment.displayName)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                        Button {
+                            pendingAttachments.removeAll { $0.id == attachment.id }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                        }
+                    }
+                    .foregroundColor(ChatTheme.textPrimary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(ChatTheme.cardBackground)
+                    .cornerRadius(14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(ChatTheme.border, lineWidth: 1)
+                    )
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+        }
+    }
+
+    @MainActor
+    private func uploadPickedFile(url: URL) async {
+        isUploadingAttachment = true
+        attachError = nil
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let response = try await apiClient.uploadFile(sessionName: sessionName, fileURL: url)
+            pendingAttachments.append(
+                PendingAttachment(relayPath: response.path, displayName: url.lastPathComponent, warning: response.warning)
+            )
+            attachError = response.warning
+        } catch {
+            attachError = error.localizedDescription
+        }
+        isUploadingAttachment = false
+    }
+
+    @MainActor
+    private func uploadPickedPhoto(item: PhotosPickerItem) async {
+        isUploadingAttachment = true
+        attachError = nil
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                attachError = "Could not load the selected photo."
+                isUploadingAttachment = false
+                return
+            }
+            let fileName = "photo-\(Int(Date().timeIntervalSince1970)).jpg"
+            let response = try await apiClient.uploadFile(
+                sessionName: sessionName, fileData: data, fileName: fileName, mimeType: "image/jpeg"
+            )
+            pendingAttachments.append(
+                PendingAttachment(relayPath: response.path, displayName: fileName, warning: response.warning)
+            )
+            attachError = response.warning
+        } catch {
+            attachError = error.localizedDescription
+        }
+        isUploadingAttachment = false
     }
 
     // MARK: - Polling & Actions
@@ -422,15 +587,20 @@ struct ChatView: View {
     }
 
     private func sendMessage() {
-        let textToSend = inputMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !textToSend.isEmpty, !isBusy, !isSending else { return }
+        let trimmed = inputMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canSend else { return }
+        // An attachment-only send (no text typed) still needs SOME text —
+        // the backend requires non-empty message text regardless.
+        let textToSend = trimmed.isEmpty ? "See attached file(s)." : trimmed
+        let filePaths = pendingAttachments.map { $0.relayPath }
 
         inputMessage = ""
+        pendingAttachments = []
         isSending = true
 
         Task {
             do {
-                try await apiClient.sendMessage(sessionName: sessionName, text: textToSend)
+                try await apiClient.sendMessage(sessionName: sessionName, text: textToSend, filePaths: filePaths)
                 await loadDetail()
             } catch {
                 errorMessage = "Failed to send: \(error.localizedDescription)"
