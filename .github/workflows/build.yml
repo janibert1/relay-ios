@@ -1,0 +1,44 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build (unsigned, ad-hoc later)
+        run: |
+          xcodebuild -project Relay.xcodeproj \
+            -scheme Relay \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build
+
+      - name: Ad-hoc sign and package IPA
+        run: |
+          set -euxo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/Relay.app"
+          test -d "$APP_PATH"
+          codesign --force --deep --sign - "$APP_PATH"
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r Relay.ipa Payload
+          ls -la Relay.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Relay-ipa
+          path: Relay.ipa
+          retention-days: 30
