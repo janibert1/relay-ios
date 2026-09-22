@@ -9,6 +9,7 @@ struct SessionListView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isShowingNewSessionSheet = false
+    @State private var isShowingUsage = false
     @State private var pollTask: Task<Void, Never>?
 
     @Environment(\.scenePhase) private var scenePhase
@@ -31,6 +32,18 @@ struct SessionListView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbarBackground(Color(red: 0.039, green: 0.039, blue: 0.039), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        isShowingUsage = true
+                    } label: {
+                        Image(systemName: "gauge.with.dots.needle.67percent")
+                    }
+                }
+            }
+            .sheet(isPresented: $isShowingUsage) {
+                UsageView(apiClient: apiClient)
+            }
             .preferredColorScheme(.dark)
             .onAppear {
                 startPolling()

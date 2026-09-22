@@ -11,6 +11,7 @@
 		44D35376D571F2F897AE1A42 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B06D26090891ADC0DE5998B2 /* Assets.xcassets */; };
 		B3569338D0EDA27BDC776530 /* PushNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E7DD56C453AE712A8F320A /* PushNotifications.swift */; };
 		846B14612F69E8E6AFB027D7 /* RelayModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D05F6EBC323745F481746C /* RelayModels.swift */; };
+		4E1EB756AD4D4FE94425CC2C /* UsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1919E9B2C5EBB8208B3BB18E /* UsageView.swift */; };
 		A0920A03C43B6DF004D4275C /* RelayAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E17F642EE2DC86AED7EA98C7 /* RelayAPIClient.swift */; };
 		ECCEB0CF82B22C66895429D7 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9341F5BB569F69B8DB681599 /* SessionListView.swift */; };
 		DD2104F926BF4BAD60ADA21F /* NewSessionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A972FC4F0A7DCE15070011C /* NewSessionSheet.swift */; };
@@ -25,6 +26,7 @@
 		74E7DD56C453AE712A8F320A /* PushNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotifications.swift; sourceTree = "<group>"; };
 		C199EB13D51202A8495C4E35 /* Relay.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Relay.entitlements; sourceTree = "<group>"; };
 		35D05F6EBC323745F481746C /* RelayModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayModels.swift; sourceTree = "<group>"; };
+		1919E9B2C5EBB8208B3BB18E /* UsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageView.swift; sourceTree = "<group>"; };
 		E17F642EE2DC86AED7EA98C7 /* RelayAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayAPIClient.swift; sourceTree = "<group>"; };
 		9341F5BB569F69B8DB681599 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
 		8A972FC4F0A7DCE15070011C /* NewSessionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionSheet.swift; sourceTree = "<group>"; };
@@ -66,6 +68,7 @@
 				B06D26090891ADC0DE5998B2 /* Assets.xcassets */,
 				5FFD644F3142B1CF931BA0ED /* Info.plist */,
 								35D05F6EBC323745F481746C /* RelayModels.swift */,
+								1919E9B2C5EBB8208B3BB18E /* UsageView.swift */,
 				E17F642EE2DC86AED7EA98C7 /* RelayAPIClient.swift */,
 				9341F5BB569F69B8DB681599 /* SessionListView.swift */,
 				8A972FC4F0A7DCE15070011C /* NewSessionSheet.swift */,
@@ -146,6 +149,7 @@
 			files = (
 				763F4507A681E31B229DF9A3 /* RelayApp.swift in Sources */,
 								846B14612F69E8E6AFB027D7 /* RelayModels.swift in Sources */,
+				4E1EB756AD4D4FE94425CC2C /* UsageView.swift in Sources */,
 				A0920A03C43B6DF004D4275C /* RelayAPIClient.swift in Sources */,
 				ECCEB0CF82B22C66895429D7 /* SessionListView.swift in Sources */,
 				DD2104F926BF4BAD60ADA21F /* NewSessionSheet.swift in Sources */,

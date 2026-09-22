@@ -17,7 +17,10 @@ extension BackendId {
 
 struct SessionCreate: Codable, Equatable {
     let backend: BackendId
-    let name: String
+    // Optional since 2026-09-22 — omit/nil and relay-api generates a real
+    // name via a quick free-model call instead of requiring one to be
+    // typed every time.
+    let name: String?
     let cwd: String?
     let addDirs: [String]
     let model: String?
@@ -30,7 +33,7 @@ struct SessionCreate: Codable, Equatable {
 
     init(
         backend: BackendId,
-        name: String,
+        name: String? = nil,
         cwd: String? = nil,
         addDirs: [String] = [],
         model: String? = nil,

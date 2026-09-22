@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// Sheet for creating a new Relay session.
-/// Supports choosing between Claude, Codex, and Gemini backends,
-/// validating session names, configuring optional working directory,
-/// dynamic model selection per backend, and optional effort level.
+/// Supports choosing between Claude, Codex, Gemini, and OpenRouter
+/// backends, validating session names, configuring optional working
+/// directory, dynamic model selection per backend, and optional effort
+/// level (hidden for OpenRouter, which has none).
 struct NewSessionSheet: View {
     let apiClient: RelayAPIClient
     var onCreated: ((SessionSummary) -> Void)?
@@ -151,15 +152,18 @@ struct NewSessionSheet: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(dimTextColor)
                     .tracking(0.5)
+                Text("optional — auto-generated if left blank")
+                    .font(.system(size: 11))
+                    .foregroundColor(dimTextColor)
                 Spacer()
-                if isNameFormatValid {
+                if !trimmedName.isEmpty && isNameFormatValid {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 12))
                         .foregroundColor(Color(red: 0.290, green: 0.871, blue: 0.502))
                 }
             }
 
-            TextField("e.g. my-task", text: $name)
+            TextField("leave blank to auto-generate", text: $name)
                 .font(.system(size: 16))
                 .foregroundColor(primaryTextColor)
                 .textInputAutocapitalization(.never)
@@ -365,20 +369,21 @@ struct NewSessionSheet: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    // Name is optional (2026-09-22) — leave it blank and relay-api
+    // generates a real one via a quick free-model call instead of
+    // requiring Jan to type one every time. Only the FORMAT is validated
+    // when something is actually typed.
     private var isNameFormatValid: Bool {
-        guard !trimmedName.isEmpty else { return false }
+        guard !trimmedName.isEmpty else { return true }
         let pattern = "^[a-zA-Z0-9_-]+$"
         return trimmedName.range(of: pattern, options: .regularExpression) != nil
     }
 
     private var nameValidationError: String? {
-        if trimmedName.isEmpty {
+        if trimmedName.isEmpty || isNameFormatValid {
             return nil
         }
-        if !isNameFormatValid {
-            return "Name must be letters, digits, - and _ only."
-        }
-        return nil
+        return "Name must be letters, digits, - and _ only."
     }
 
     private var canSubmit: Bool {
@@ -445,7 +450,7 @@ struct NewSessionSheet: View {
         let trimmedCwd = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
         let createRequest = SessionCreate(
             backend: selectedBackend,
-            name: trimmedName,
+            name: trimmedName.isEmpty ? nil : trimmedName,
             cwd: trimmedCwd.isEmpty ? nil : trimmedCwd,
             addDirs: [],
             model: selectedModel.isEmpty ? nil : selectedModel,
