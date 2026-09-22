@@ -481,7 +481,13 @@ private struct ChatTurnRow: View, Equatable {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if !turn.toolCalls.isEmpty && turn.role != "user" {
+            // Old flat "Ran N commands" summary — only shown as a fallback
+            // when a turn has tool_calls but no ordered `segments` (older
+            // cached data, or a backend that doesn't emit segments, like
+            // openrouter). Turns WITH segments render each tool inline in
+            // its real position instead, which is strictly more
+            // informative, so this and that are mutually exclusive.
+            if turn.segments.isEmpty && !turn.toolCalls.isEmpty && turn.role != "user" {
                 HStack {
                     ToolCallsSummaryRow(toolCalls: turn.toolCalls)
                     Spacer(minLength: 44)
@@ -496,6 +502,35 @@ private struct ChatTurnRow: View, Equatable {
             } else {
                 assistantBubble
             }
+        }
+    }
+
+    /// Renders a turn's real content: interleaved text/tool segments in
+    /// the order they actually happened, when available, or the old flat
+    /// text as a fallback (no segments — older cached data, or a backend
+    /// that doesn't emit them).
+    @ViewBuilder
+    private func turnContent(errorStyled: Bool) -> some View {
+        if !turn.segments.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(turn.segments) { seg in
+                    if seg.type == "text", let text = seg.text, !text.isEmpty {
+                        Text(markdownText(text))
+                            .font(.system(size: 15))
+                            .foregroundColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
+                            .lineSpacing(3)
+                            .textSelection(.enabled)
+                    } else if seg.type == "tool" {
+                        InlineToolSegmentView(segment: seg)
+                    }
+                }
+            }
+        } else {
+            Text(markdownText(turn.text))
+                .font(.system(size: 15))
+                .foregroundColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
+                .lineSpacing(3)
+                .textSelection(.enabled)
         }
     }
 
@@ -518,11 +553,7 @@ private struct ChatTurnRow: View, Equatable {
     private var assistantBubble: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(markdownText(turn.text))
-                    .font(.system(size: 15))
-                    .foregroundColor(ChatTheme.textPrimary)
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
+                turnContent(errorStyled: false)
 
                 if let cost = turn.costUsd {
                     Text(String(format: "$%.4f", cost))
@@ -555,11 +586,7 @@ private struct ChatTurnRow: View, Equatable {
                 }
                 .foregroundColor(ChatTheme.danger)
 
-                Text(markdownText(turn.text))
-                    .font(.system(size: 15))
-                    .foregroundColor(ChatTheme.danger)
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
+                turnContent(errorStyled: true)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -639,6 +666,112 @@ private struct ToolCallsSummaryRow: View {
     }
 }
 
+/// A tool call rendered INLINE, in its real chronological position among
+/// a turn's text segments — collapsed by default (just name + a
+/// one-line summary), tap to reveal its real output. This is the
+/// interleaved-order view; ToolCallRow/ToolCallsSheet below are the
+/// older flat "Ran N commands" fallback for turns with no `segments`.
+private struct InlineToolSegmentView: View {
+    let segment: TurnSegment
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                if segment.output != nil {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 10))
+                    Text(segment.name ?? "tool")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(segment.summary ?? "")
+                        .font(.system(size: 12, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    if segment.output != nil {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                }
+                .foregroundColor(ChatTheme.textDim)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded, let output = segment.output {
+                Text(output)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(Color(white: 0.85))
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(ChatTheme.rawBubble)
+                    .cornerRadius(6)
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(ChatTheme.rawBubble.opacity(0.5))
+        .cornerRadius(6)
+    }
+}
+
+private struct ToolCallRow: View {
+    let call: ToolCall
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Button {
+                if call.output != nil {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+            } label: {
+                HStack(alignment: .top, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(call.name)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(ChatTheme.textPrimary)
+                        Text(call.summary)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(ChatTheme.textDim)
+                            .lineLimit(isExpanded ? nil : 3)
+                    }
+                    Spacer()
+                    if call.output != nil {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(ChatTheme.textDim)
+                            .padding(.top, 2)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .textSelection(.enabled)
+
+            if isExpanded, let output = call.output {
+                Text(output)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(Color(white: 0.85))
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(ChatTheme.rawBubble)
+                    .cornerRadius(6)
+                    .padding(.top, 2)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 private struct ToolCallsSheet: View {
     let toolCalls: [ToolCall]
     @Environment(\.dismiss) private var dismiss
@@ -646,18 +779,8 @@ private struct ToolCallsSheet: View {
     var body: some View {
         NavigationStack {
             List(toolCalls) { call in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(call.name)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(ChatTheme.textPrimary)
-                    Text(call.summary)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(ChatTheme.textDim)
-                        .textSelection(.enabled)
-                        .lineLimit(3)
-                }
-                .padding(.vertical, 2)
-                .listRowBackground(ChatTheme.cardBackground)
+                ToolCallRow(call: call)
+                    .listRowBackground(ChatTheme.cardBackground)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)

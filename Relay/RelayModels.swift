@@ -82,6 +82,21 @@ struct ToolCall: Codable, Identifiable, Equatable {
     var id: String { name + summary }
     let name: String
     let summary: String
+    let output: String?
+}
+
+/// One piece of a turn IN THE ORDER IT ACTUALLY HAPPENED — text or a tool
+/// call — so the chat view can render the real back-and-forth instead of
+/// "all tools" + "the final text" as two disconnected blobs. See
+/// project_relay_ios_app.md's 2026-09-22 entry for why this replaced the
+/// flat tool_calls-only view.
+struct TurnSegment: Codable, Identifiable, Equatable {
+    var id: String { type + (text ?? "") + (name ?? "") + (summary ?? "") }
+    let type: String  // "text" | "tool"
+    let text: String?
+    let name: String?
+    let summary: String?
+    let output: String?
 }
 
 struct Turn: Codable, Identifiable, Equatable {
@@ -92,9 +107,10 @@ struct Turn: Codable, Identifiable, Equatable {
     let costUsd: Double?
     let isError: Bool
     let toolCalls: [ToolCall]
+    let segments: [TurnSegment]
 
     enum CodingKeys: String, CodingKey {
-        case role, text, timestamp
+        case role, text, timestamp, segments
         case costUsd = "cost_usd"
         case isError = "is_error"
         case toolCalls = "tool_calls"
@@ -106,7 +122,8 @@ struct Turn: Codable, Identifiable, Equatable {
         timestamp: String? = nil,
         costUsd: Double? = nil,
         isError: Bool = false,
-        toolCalls: [ToolCall] = []
+        toolCalls: [ToolCall] = [],
+        segments: [TurnSegment] = []
     ) {
         self.role = role
         self.text = text
@@ -114,6 +131,7 @@ struct Turn: Codable, Identifiable, Equatable {
         self.costUsd = costUsd
         self.isError = isError
         self.toolCalls = toolCalls
+        self.segments = segments
     }
 
     init(from decoder: Decoder) throws {
@@ -124,6 +142,7 @@ struct Turn: Codable, Identifiable, Equatable {
         costUsd = try c.decodeIfPresent(Double.self, forKey: .costUsd)
         isError = try c.decodeIfPresent(Bool.self, forKey: .isError) ?? false
         toolCalls = try c.decodeIfPresent([ToolCall].self, forKey: .toolCalls) ?? []
+        segments = try c.decodeIfPresent([TurnSegment].self, forKey: .segments) ?? []
     }
 }
 
