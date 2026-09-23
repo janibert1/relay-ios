@@ -152,6 +152,7 @@ struct Turn: Codable, Identifiable, Equatable {
 struct SessionSummary: Codable, Identifiable, Equatable {
     var id: String { name }
     let name: String
+    let displayName: String?
     let backend: BackendId          // CURRENTLY ACTIVE backend
     let originalBackend: BackendId
     let lockedToFree: Bool
@@ -165,6 +166,7 @@ struct SessionSummary: Codable, Identifiable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case name, backend, status, pid, cwd, model, effort
+        case displayName = "display_name"
         case originalBackend = "original_backend"
         case lockedToFree = "locked_to_free"
         case createdAt = "created_at"
@@ -173,6 +175,7 @@ struct SessionSummary: Codable, Identifiable, Equatable {
 
     init(
         name: String,
+        displayName: String? = nil,
         backend: BackendId,
         originalBackend: BackendId,
         lockedToFree: Bool,
@@ -185,6 +188,7 @@ struct SessionSummary: Codable, Identifiable, Equatable {
         lastActivityAt: String? = nil
     ) {
         self.name = name
+        self.displayName = displayName
         self.backend = backend
         self.originalBackend = originalBackend
         self.lockedToFree = lockedToFree
@@ -201,6 +205,7 @@ struct SessionSummary: Codable, Identifiable, Equatable {
 struct SessionDetail: Codable, Identifiable, Equatable {
     var id: String { name }
     let name: String
+    let displayName: String?
     let backend: BackendId          // CURRENTLY ACTIVE backend
     let originalBackend: BackendId
     let lockedToFree: Bool
@@ -213,20 +218,24 @@ struct SessionDetail: Codable, Identifiable, Equatable {
     let lastActivityAt: String?
     let turns: [Turn]
     let transcriptMode: String      // "structured" | "raw_snapshot"
+    let queuedMessages: [QueuedMessage]
 
     enum CodingKeys: String, CodingKey {
         case name, backend, status, pid, cwd, model, effort
+        case displayName = "display_name"
         case originalBackend = "original_backend"
         case lockedToFree = "locked_to_free"
         case createdAt = "created_at"
         case lastActivityAt = "last_activity_at"
         case turns
         case transcriptMode = "transcript_mode"
+        case queuedMessages = "queued_messages"
     }
 
     var summary: SessionSummary {
         SessionSummary(
             name: name,
+            displayName: displayName,
             backend: backend,
             originalBackend: originalBackend,
             lockedToFree: lockedToFree,
@@ -242,6 +251,7 @@ struct SessionDetail: Codable, Identifiable, Equatable {
 
     init(
         name: String,
+        displayName: String? = nil,
         backend: BackendId,
         originalBackend: BackendId,
         lockedToFree: Bool,
@@ -253,9 +263,11 @@ struct SessionDetail: Codable, Identifiable, Equatable {
         createdAt: String? = nil,
         lastActivityAt: String? = nil,
         turns: [Turn] = [],
-        transcriptMode: String = "structured"
+        transcriptMode: String = "structured",
+        queuedMessages: [QueuedMessage] = []
     ) {
         self.name = name
+        self.displayName = displayName
         self.backend = backend
         self.originalBackend = originalBackend
         self.lockedToFree = lockedToFree
@@ -268,6 +280,18 @@ struct SessionDetail: Codable, Identifiable, Equatable {
         self.lastActivityAt = lastActivityAt
         self.turns = turns
         self.transcriptMode = transcriptMode
+        self.queuedMessages = queuedMessages
+    }
+}
+
+struct QueuedMessage: Codable, Identifiable, Equatable {
+    let id: Int
+    let text: String
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, text
+        case createdAt = "created_at"
     }
 }
 

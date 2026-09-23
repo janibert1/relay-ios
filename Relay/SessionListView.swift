@@ -226,7 +226,7 @@ private struct SessionRowView: View {
             HStack(alignment: .center, spacing: 8) {
                 BackendBadge(backend: session.backend)
 
-                Text(session.name)
+                Text(session.displayName ?? "New conversation")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)

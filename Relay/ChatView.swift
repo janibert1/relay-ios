@@ -171,7 +171,7 @@ struct ChatView: View {
 
     private var navigationHeader: some View {
         VStack(spacing: 2) {
-            Text(sessionName)
+            Text(sessionDetail?.displayName ?? "New conversation")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(ChatTheme.textPrimary)
                 .lineLimit(1)
@@ -350,6 +350,12 @@ struct ChatView: View {
                             )
                             .id(index)
                         }
+
+                        if !detail.queuedMessages.isEmpty {
+                            ForEach(detail.queuedMessages) { message in
+                                queuedMessageBubble(message)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -431,6 +437,7 @@ struct ChatView: View {
                     )
 
                 if isBusy {
+                    sendButton(isQueued: true)
                     Button(action: stopSession) {
                         HStack(spacing: 4) {
                             Image(systemName: "stop.fill")
@@ -446,15 +453,7 @@ struct ChatView: View {
                     }
                     .disabled(isStopping)
                 } else {
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.black)
-                            .frame(width: 36, height: 36)
-                            .background(canSend ? ChatTheme.claude : ChatTheme.claude.opacity(0.35))
-                            .clipShape(Circle())
-                    }
-                    .disabled(!canSend)
+                    sendButton(isQueued: false)
                 }
             }
             .padding(.horizontal, 12)
@@ -467,7 +466,47 @@ struct ChatView: View {
     private var canSend: Bool {
         let hasContent = !inputMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !pendingAttachments.isEmpty
-        return !isBusy && !isSending && !isUploadingAttachment && hasContent
+        return !isSending && !isUploadingAttachment && hasContent
+    }
+
+    private func sendButton(isQueued: Bool) -> some View {
+        Button(action: sendMessage) {
+            Image(systemName: isQueued ? "tray.and.arrow.up" : "arrow.up")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundColor(.black)
+                .frame(width: 36, height: 36)
+                .background(canSend ? ChatTheme.claude : ChatTheme.claude.opacity(0.35))
+                .clipShape(Circle())
+        }
+        .accessibilityLabel(isQueued ? "Queue message" : "Send message")
+        .disabled(!canSend)
+    }
+
+    @ViewBuilder
+    private func queuedMessageBubble(_ message: QueuedMessage) -> some View {
+        let content = AttachmentMessageContent.parse(message.text)
+        HStack {
+            Spacer(minLength: 44)
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Queued", systemImage: "clock.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(ChatTheme.busy)
+                ForEach(content.attachments) { attachment in
+                    AttachmentPreview(attachment: attachment, sessionName: sessionName, apiClient: apiClient)
+                }
+                if !content.body.isEmpty {
+                    Text(content.body)
+                        .font(.system(size: 17))
+                        .foregroundColor(ChatTheme.textPrimary)
+                        .lineSpacing(3)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(ChatTheme.userBubble.opacity(0.7))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(ChatTheme.busy.opacity(0.7), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
     }
 
     private var attachmentChipRow: some View {
@@ -959,12 +998,15 @@ private struct AttachmentPreview: View {
                 apiClient: apiClient
             )
         } else {
-            HStack(spacing: 8) {
-                Image(systemName: "doc.fill")
-                    .font(.system(size: 18))
-                Text(attachment.displayName)
-                    .font(.system(size: 14, weight: .medium))
-                    .lineLimit(2)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.fill")
+                        .font(.system(size: 18))
+                    Text(attachment.displayName)
+                        .font(.system(size: 14, weight: .medium))
+                        .lineLimit(2)
+                }
+                AttachmentDownloadButton(attachment: attachment, sessionName: sessionName, apiClient: apiClient)
             }
             .foregroundColor(ChatTheme.textPrimary)
             .padding(10)
@@ -1001,6 +1043,8 @@ private struct RemoteAttachmentImage: View {
                 .font(.system(size: 12))
                 .foregroundColor(ChatTheme.textDim)
                 .lineLimit(1)
+
+            AttachmentDownloadButton(attachment: attachment, sessionName: sessionName, apiClient: apiClient)
         }
         .task(id: attachment.relayPath) {
             do {
@@ -1042,6 +1086,8 @@ private struct RemoteAttachmentVideo: View {
                 .font(.system(size: 12))
                 .foregroundColor(ChatTheme.textDim)
                 .lineLimit(1)
+
+            AttachmentDownloadButton(attachment: attachment, sessionName: sessionName, apiClient: apiClient)
         }
         .task(id: attachment.relayPath) {
             do {
@@ -1057,6 +1103,58 @@ private struct RemoteAttachmentVideo: View {
                 loadFailed = true
             }
         }
+    }
+}
+
+/// Downloads to Relay's local temporary store and opens iOS's share sheet,
+/// whose standard "Save to Files" action makes this a real user-controlled
+/// download rather than an inaccessible sandbox copy.
+private struct AttachmentDownloadButton: View {
+    let attachment: RelayAttachment
+    let sessionName: String
+    let apiClient: RelayAPIClient
+
+    @State private var downloadedURL: URL?
+    @State private var isDownloading = false
+    @State private var failed = false
+
+    var body: some View {
+        if let downloadedURL {
+            ShareLink(item: downloadedURL) {
+                Label("Save file", systemImage: "square.and.arrow.down")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundColor(ChatTheme.codex)
+        } else {
+            Button {
+                Task { await download() }
+            } label: {
+                if isDownloading {
+                    ProgressView().scaleEffect(0.7)
+                } else {
+                    Label(failed ? "Try download again" : "Download", systemImage: "arrow.down.circle")
+                        .font(.system(size: 13, weight: .medium))
+                }
+            }
+            .foregroundColor(failed ? ChatTheme.danger : ChatTheme.codex)
+            .disabled(isDownloading)
+        }
+    }
+
+    @MainActor
+    private func download() async {
+        isDownloading = true
+        failed = false
+        do {
+            let data = try await apiClient.downloadFile(sessionName: sessionName, relayPath: attachment.relayPath)
+            let safeName = attachment.displayName.isEmpty ? "relay-download" : attachment.displayName
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("relay-\(UUID().uuidString)-\(safeName)")
+            try data.write(to: url, options: .atomic)
+            downloadedURL = url
+        } catch {
+            failed = true
+        }
+        isDownloading = false
     }
 }
 
@@ -1118,20 +1216,30 @@ private struct ChatTurnRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(turn.segments) { seg in
                     if seg.type == "text", let text = seg.text, !text.isEmpty {
-                        MarkdownTextView(
-                            text: text,
-                            textColor: UIColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
-                        )
+                        assistantTextSegment(text, errorStyled: errorStyled)
                     } else if seg.type == "tool" {
                         InlineToolSegmentView(segment: seg)
                     }
                 }
             }
         } else {
-            MarkdownTextView(
-                text: turn.text,
-                textColor: UIColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
-            )
+            assistantTextSegment(turn.text, errorStyled: errorStyled)
+        }
+    }
+
+    @ViewBuilder
+    private func assistantTextSegment(_ text: String, errorStyled: Bool) -> some View {
+        let content = AttachmentMessageContent.parse(text)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(content.attachments) { attachment in
+                AttachmentPreview(attachment: attachment, sessionName: sessionName, apiClient: apiClient)
+            }
+            if !content.body.isEmpty {
+                MarkdownTextView(
+                    text: content.body,
+                    textColor: UIColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
+                )
+            }
         }
     }
 

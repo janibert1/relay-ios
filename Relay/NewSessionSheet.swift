@@ -152,7 +152,7 @@ struct NewSessionSheet: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(dimTextColor)
                     .tracking(0.5)
-                Text("optional — auto-generated if left blank")
+                Text("optional — named after your first message")
                     .font(.system(size: 11))
                     .foregroundColor(dimTextColor)
                 Spacer()
@@ -163,7 +163,7 @@ struct NewSessionSheet: View {
                 }
             }
 
-            TextField("leave blank to auto-generate", text: $name)
+            TextField("leave blank to name after first message", text: $name)
                 .font(.system(size: 16))
                 .foregroundColor(primaryTextColor)
                 .textInputAutocapitalization(.never)
