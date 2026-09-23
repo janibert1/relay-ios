@@ -386,20 +386,28 @@ struct ChatView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                Menu {
-                    Button {
-                        isShowingFileImporter = true
-                    } label: {
-                        Label("Choose File", systemImage: "doc")
-                    }
-                    PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                        Label("Photo Library", systemImage: "photo")
-                    }
+                // PhotosPicker is deliberately a standalone control.  When
+                // placed inside Menu, iOS 16 presents only the ordinary
+                // Button children, silently dropping the PhotosPicker; that
+                // made Relay look as though it supported files but not
+                // photos.  Keeping both choices visible also makes the
+                // distinction obvious at a glance.
+                Button {
+                    isShowingFileImporter = true
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 24))
+                    Image(systemName: "doc.badge.plus")
+                        .font(.system(size: 21))
                         .foregroundColor(ChatTheme.textDim)
                 }
+                .accessibilityLabel("Choose File")
+                .disabled(isUploadingAttachment)
+
+                PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 21))
+                        .foregroundColor(ChatTheme.textDim)
+                }
+                .accessibilityLabel("Choose Photo")
                 .disabled(isUploadingAttachment)
 
                 TextField("Message...", text: $inputMessage, axis: .vertical)
@@ -527,9 +535,15 @@ struct ChatView: View {
                 isUploadingAttachment = false
                 return
             }
-            let fileName = "photo-\(Int(Date().timeIntervalSince1970)).jpg"
+            // Data returned by PhotosPicker may be HEIC rather than JPEG.
+            // Preserve the selected asset's advertised type instead of
+            // labelling every byte stream as JPEG.
+            let contentType = item.supportedContentTypes.first ?? .jpeg
+            let fileExtension = contentType.preferredFilenameExtension ?? "jpg"
+            let mimeType = contentType.preferredMIMEType ?? "application/octet-stream"
+            let fileName = "photo-\(Int(Date().timeIntervalSince1970)).\(fileExtension)"
             let response = try await apiClient.uploadFile(
-                sessionName: sessionName, fileData: data, fileName: fileName, mimeType: "image/jpeg"
+                sessionName: sessionName, fileData: data, fileName: fileName, mimeType: mimeType
             )
             pendingAttachments.append(
                 PendingAttachment(relayPath: response.path, displayName: fileName, warning: response.warning)
