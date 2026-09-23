@@ -251,6 +251,21 @@ final class RelayAPIClient {
         try await getSessionDetail(name: sessionName, lines: lines)
     }
 
+    /// GET an attachment that was previously uploaded to a session.
+    func downloadFile(sessionName: String, relayPath: String) async throws -> Data {
+        let escapedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
+        // Encode each component separately: attachment paths are relative,
+        // and a filename must never be allowed to alter the route structure.
+        let escapedPath = relayPath
+            .split(separator: "/")
+            .map { component in
+                String(component).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String(component)
+            }
+            .joined(separator: "/")
+        let url = try makeURL(path: "/api/sessions/\(escapedName)/files/\(escapedPath)")
+        return try await performRaw(makeRequest(url: url, method: "GET"))
+    }
+
     /// POST /api/sessions/{name}/messages (body MessageCreate) -> {"status":"sent"}
     @discardableResult
     func sendMessage(sessionName: String, message: MessageCreate) async throws -> StatusResponse {

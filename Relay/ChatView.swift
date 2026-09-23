@@ -2,6 +2,8 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import UIKit
+import AVFoundation
+import AVKit
 
 /// A file/photo already uploaded via POST /api/sessions/{name}/files,
 /// waiting to be attached to the NEXT message sent. Upload happens
@@ -342,9 +344,10 @@ struct ChatView: View {
                             ChatTurnRow(
                                 turn: turn,
                                 isRawSnapshot: detail.transcriptMode == "raw_snapshot",
-                                backendName: detail.backend.displayName
+                                backendName: detail.backend.displayName,
+                                sessionName: sessionName,
+                                apiClient: apiClient
                             )
-                            .equatable()
                             .id(index)
                         }
                     }
@@ -407,12 +410,12 @@ struct ChatView: View {
                 .accessibilityLabel("Choose File")
                 .disabled(isUploadingAttachment)
 
-                PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                    Image(systemName: "photo.badge.plus")
+                PhotosPicker(selection: $photoPickerItem, matching: .any(of: [.images, .videos])) {
+                    Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 21))
                         .foregroundColor(ChatTheme.textDim)
                 }
-                .accessibilityLabel("Choose Photo")
+                .accessibilityLabel("Choose Photo or Video")
                 .disabled(isUploadingAttachment)
 
                 TextField("Message...", text: $inputMessage, axis: .vertical)
@@ -536,7 +539,7 @@ struct ChatView: View {
         attachError = nil
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else {
-                attachError = "Could not load the selected photo."
+                attachError = "Could not load the selected photo or video."
                 isUploadingAttachment = false
                 return
             }
@@ -546,7 +549,8 @@ struct ChatView: View {
             let contentType = item.supportedContentTypes.first ?? .jpeg
             let fileExtension = contentType.preferredFilenameExtension ?? "jpg"
             let mimeType = contentType.preferredMIMEType ?? "application/octet-stream"
-            let fileName = "photo-\(Int(Date().timeIntervalSince1970)).\(fileExtension)"
+            let mediaKind = contentType.conforms(to: .movie) ? "video" : "photo"
+            let fileName = "\(mediaKind)-\(Int(Date().timeIntervalSince1970)).\(fileExtension)"
             let response = try await apiClient.uploadFile(
                 sessionName: sessionName, fileData: data, fileName: fileName, mimeType: mimeType
             )
@@ -764,7 +768,7 @@ private struct MarkdownTextView: View {
 
     private var baseAttributes: [NSAttributedString.Key: Any] {
         [
-            .font: UIFont.systemFont(ofSize: 15),
+            .font: UIFont.systemFont(ofSize: 17),
             .foregroundColor: textColor,
         ]
     }
@@ -809,7 +813,7 @@ private struct MarkdownTextView: View {
             appendRaw(
                 value.isEmpty ? " " : value,
                 to: result,
-                font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+                font: UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
             )
             appendRaw("\n", to: result)
         case .rule:
@@ -818,7 +822,7 @@ private struct MarkdownTextView: View {
             appendRaw(
                 "\(value)\n",
                 to: result,
-                font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+                font: UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
             )
         }
     }
@@ -870,7 +874,7 @@ private struct SelectableMarkdownTextView: UIViewRepresentable {
 
     func updateUIView(_ textView: UITextView, context: Context) {
         textView.textColor = textColor
-        textView.font = UIFont.systemFont(ofSize: 15)
+        textView.font = UIFont.systemFont(ofSize: 17)
         textView.attributedText = attributedText
         textView.linkTextAttributes = [.foregroundColor: UIColor(ChatTheme.codex)]
     }
@@ -884,10 +888,189 @@ private struct SelectableMarkdownTextView: UIViewRepresentable {
 
 // MARK: - Turn Row & Bubble Views
 
-private struct ChatTurnRow: View, Equatable {
+/// The API places uploaded files at the start of the sent text so every
+/// provider receives a plain, useful path.  The native client recognises that
+/// small envelope again to render media rather than exposing implementation
+/// text to the person who sent it.
+private struct AttachmentMessageContent {
+    let attachments: [RelayAttachment]
+    let body: String
+
+    static func parse(_ text: String) -> AttachmentMessageContent {
+        let prefix = "[Attached file(s): "
+        guard text.hasPrefix(prefix), let markerEnd = text.range(of: "]\n\n") else {
+            return AttachmentMessageContent(attachments: [], body: text)
+        }
+
+        let pathsStart = text.index(text.startIndex, offsetBy: prefix.count)
+        let pathList = String(text[pathsStart..<markerEnd.lowerBound])
+        let paths = pathList.components(separatedBy: ", ").filter { !$0.isEmpty }
+        let body = String(text[markerEnd.upperBound...])
+        return AttachmentMessageContent(
+            attachments: paths.map(RelayAttachment.init(relayPath:)),
+            body: body
+        )
+    }
+}
+
+private struct RelayAttachment: Identifiable {
+    let relayPath: String
+
+    var id: String { relayPath }
+    var displayName: String { URL(fileURLWithPath: relayPath).lastPathComponent }
+
+    private var fileExtension: String {
+        URL(fileURLWithPath: relayPath).pathExtension.lowercased()
+    }
+
+    var isImage: Bool {
+        ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp", "tif", "tiff"].contains(fileExtension)
+    }
+
+    var isVideo: Bool {
+        ["mp4", "mov", "m4v", "avi", "webm", "mpg", "mpeg"].contains(fileExtension)
+    }
+}
+
+private struct AttachmentPreview: View {
+    let attachment: RelayAttachment
+    let sessionName: String
+    let apiClient: RelayAPIClient
+
+    var body: some View {
+        if attachment.isImage {
+            RemoteAttachmentImage(
+                attachment: attachment,
+                sessionName: sessionName,
+                apiClient: apiClient
+            )
+        } else if attachment.isVideo {
+            RemoteAttachmentVideo(
+                attachment: attachment,
+                sessionName: sessionName,
+                apiClient: apiClient
+            )
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.fill")
+                    .font(.system(size: 18))
+                Text(attachment.displayName)
+                    .font(.system(size: 14, weight: .medium))
+                    .lineLimit(2)
+            }
+            .foregroundColor(ChatTheme.textPrimary)
+            .padding(10)
+            .background(ChatTheme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+}
+
+private struct RemoteAttachmentImage: View {
+    let attachment: RelayAttachment
+    let sessionName: String
+    let apiClient: RelayAPIClient
+
+    @State private var image: UIImage?
+    @State private var loadFailed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            } else if loadFailed {
+                unavailableMediaLabel(icon: "photo")
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 96)
+            }
+
+            Text(attachment.displayName)
+                .font(.system(size: 12))
+                .foregroundColor(ChatTheme.textDim)
+                .lineLimit(1)
+        }
+        .task(id: attachment.relayPath) {
+            do {
+                let data = try await apiClient.downloadFile(sessionName: sessionName, relayPath: attachment.relayPath)
+                guard !Task.isCancelled else { return }
+                image = UIImage(data: data)
+                loadFailed = image == nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                loadFailed = true
+            }
+        }
+    }
+}
+
+private struct RemoteAttachmentVideo: View {
+    let attachment: RelayAttachment
+    let sessionName: String
+    let apiClient: RelayAPIClient
+
+    @State private var player: AVPlayer?
+    @State private var loadFailed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(height: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .onDisappear { player.pause() }
+            } else if loadFailed {
+                unavailableMediaLabel(icon: "video")
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 140)
+            }
+
+            Text(attachment.displayName)
+                .font(.system(size: 12))
+                .foregroundColor(ChatTheme.textDim)
+                .lineLimit(1)
+        }
+        .task(id: attachment.relayPath) {
+            do {
+                let data = try await apiClient.downloadFile(sessionName: sessionName, relayPath: attachment.relayPath)
+                guard !Task.isCancelled else { return }
+                let ext = URL(fileURLWithPath: attachment.relayPath).pathExtension
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("relay-\(UUID().uuidString).\(ext)")
+                try data.write(to: url, options: .atomic)
+                player = AVPlayer(url: url)
+            } catch {
+                guard !Task.isCancelled else { return }
+                loadFailed = true
+            }
+        }
+    }
+}
+
+@ViewBuilder
+private func unavailableMediaLabel(icon: String) -> some View {
+    HStack(spacing: 8) {
+        Image(systemName: "\(icon).slash")
+        Text("Attachment is no longer available")
+            .font(.system(size: 13))
+    }
+    .foregroundColor(ChatTheme.textDim)
+    .frame(maxWidth: .infinity, minHeight: 72)
+    .background(ChatTheme.cardBackground)
+    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+}
+
+private struct ChatTurnRow: View {
     let turn: Turn
     let isRawSnapshot: Bool
     let backendName: String
+    let sessionName: String
+    let apiClient: RelayAPIClient
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -944,19 +1127,33 @@ private struct ChatTurnRow: View, Equatable {
         }
     }
 
+    @ViewBuilder
     private var userBubble: some View {
+        let content = AttachmentMessageContent.parse(turn.text)
         HStack {
             Spacer(minLength: 44)
 
-            Text(turn.text)
-                .font(.system(size: 15))
-                .foregroundColor(ChatTheme.textPrimary)
-                .lineSpacing(3)
-                .textSelection(.enabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(ChatTheme.userBubble)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(content.attachments) { attachment in
+                    AttachmentPreview(
+                        attachment: attachment,
+                        sessionName: sessionName,
+                        apiClient: apiClient
+                    )
+                }
+
+                if !content.body.isEmpty {
+                    Text(content.body)
+                        .font(.system(size: 17))
+                        .foregroundColor(ChatTheme.textPrimary)
+                        .lineSpacing(3)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(ChatTheme.userBubble)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 

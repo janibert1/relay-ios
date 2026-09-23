@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#0a0a0a"/>
+  <!-- Four equal Relay providers, arranged as a gently slanted parallelogram. -->
+  <circle cx="306" cy="402" r="158" fill="#d77557"/>
+  <circle cx="684" cy="282" r="158" fill="#74b9ff"/>
+  <circle cx="340" cy="742" r="158" fill="#8e6cef"/>
+  <circle cx="718" cy="622" r="158" fill="#4ade80"/>
+</svg>
