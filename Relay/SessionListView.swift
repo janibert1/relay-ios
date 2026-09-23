@@ -4,6 +4,7 @@ import SwiftUI
 /// Polls `GET /api/sessions` every 5 seconds while visible.
 struct SessionListView: View {
     let apiClient: RelayAPIClient
+    @Binding var deepLinkedSessionName: String?
 
     @State private var sessions: [SessionSummary] = []
     @State private var isLoading = false
@@ -11,15 +12,20 @@ struct SessionListView: View {
     @State private var isShowingNewSessionSheet = false
     @State private var isShowingUsage = false
     @State private var pollTask: Task<Void, Never>?
+    @State private var navigationPath = NavigationPath()
 
     @Environment(\.scenePhase) private var scenePhase
 
-    init(apiClient: RelayAPIClient = RelayAPIClient()) {
+    init(
+        apiClient: RelayAPIClient = RelayAPIClient(),
+        deepLinkedSessionName: Binding<String?> = .constant(nil)
+    ) {
         self.apiClient = apiClient
+        _deepLinkedSessionName = deepLinkedSessionName
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ZStack(alignment: .bottomTrailing) {
                 Color(red: 0.039, green: 0.039, blue: 0.039)
                     .ignoresSafeArea()
@@ -47,6 +53,7 @@ struct SessionListView: View {
             .preferredColorScheme(.dark)
             .onAppear {
                 startPolling()
+                openDeepLinkedSessionIfNeeded()
             }
             .onDisappear {
                 stopPolling()
@@ -58,6 +65,9 @@ struct SessionListView: View {
                     stopPolling()
                 }
             }
+            .onChange(of: deepLinkedSessionName) { _ in
+                openDeepLinkedSessionIfNeeded()
+            }
             .sheet(isPresented: $isShowingNewSessionSheet, onDismiss: {
                 Task {
                     await loadSessions()
@@ -65,6 +75,9 @@ struct SessionListView: View {
             }) {
                 NewSessionSheet()
                     .preferredColorScheme(.dark)
+            }
+            .navigationDestination(for: String.self) { sessionName in
+                ChatView(sessionName: sessionName)
             }
         }
     }
@@ -87,7 +100,7 @@ struct SessionListView: View {
     private var sessionListView: some View {
         List {
             ForEach(sessions) { session in
-                NavigationLink(destination: ChatView(sessionName: session.name)) {
+                NavigationLink(value: session.name) {
                     SessionRowView(session: session)
                 }
                 .listRowBackground(Color(red: 0.102, green: 0.102, blue: 0.102))
@@ -193,6 +206,12 @@ struct SessionListView: View {
     private func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+    }
+
+    private func openDeepLinkedSessionIfNeeded() {
+        guard let sessionName = deepLinkedSessionName else { return }
+        navigationPath = NavigationPath([sessionName])
+        deepLinkedSessionName = nil
     }
 
     @MainActor

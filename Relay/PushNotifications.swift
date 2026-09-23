@@ -1,11 +1,12 @@
 import UIKit
 import UserNotifications
 
-/// Registers this device for real APNs push and reports the token to
-/// push-relay (https://push.jdries.nl), the shared backend for all of Jan's
-/// sideloaded apps. Replaces the old ntfy-based notification workaround --
-/// no longer needed now that these apps are signed via Feather with full
-/// AppTesters dev-account capability instead of running under LiveContainer.
+/// Registers this device for direct APNs push and reports the token to
+/// push-relay (https://push.jdries.nl), the shared backend for Jan's
+/// sideloaded apps. Relay conversation-completion notices currently use the
+/// server-side ntfy route instead: the third-party signing account cannot
+/// provide the APNs Auth Key required for direct sends. Keep this registration
+/// in place for future direct-push use if that account access changes.
 ///
 /// Requires the app's own entitlements to declare
 /// `aps-environment` = `production` (Feather/AppTesters-signed builds are
