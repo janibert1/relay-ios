@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
+import UIKit
 
 /// A file/photo already uploaded via POST /api/sessions/{name}/files,
 /// waiting to be attached to the NEXT message sent. Upload happens
@@ -682,14 +683,14 @@ private enum MarkdownLine {
 /// uses AttributedString only for inline formatting within that row.
 private struct MarkdownTextView: View {
     let text: String
+    let textColor: UIColor
 
     var body: some View {
-        // Text selection only supports an arbitrary drag range inside one
-        // Text surface. A VStack of one Text per Markdown row looked right,
-        // but iOS selected each row as an all-or-nothing block. Concatenating
-        // the styled line fragments retains our block-aware layout while
-        // giving the whole message one continuous native selection range.
-        renderedText
+        // SwiftUI's Text selection still exposes only its Copy/Share menu on
+        // this iOS version, without draggable range handles. UITextView is
+        // Apple's native selectable-text control and provides the standard
+        // iOS word/range-selection interaction.
+        SelectableMarkdownTextView(attributedText: renderedText, textColor: textColor)
     }
 
     private var lines: [MarkdownLine] {
@@ -761,47 +762,114 @@ private struct MarkdownTextView: View {
         line.prefix { $0 == " " || $0 == "\t" }.count / 2
     }
 
-    private var renderedText: Text {
-        lines.reduce(Text("")) { partial, line in
-            partial + lineText(line)
+    private var baseAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: UIFont.systemFont(ofSize: 15),
+            .foregroundColor: textColor,
+        ]
+    }
+
+    private var renderedText: NSAttributedString {
+        let result = NSMutableAttributedString()
+        for line in lines {
+            append(line, to: result)
+        }
+        return result
+    }
+
+    private func append(_ line: MarkdownLine, to result: NSMutableAttributedString) {
+        switch line {
+        case .blank:
+            appendRaw("\n", to: result)
+        case .text(let value):
+            appendInline(value, to: result)
+            appendRaw("\n", to: result)
+        case .heading(let level, let value):
+            let start = result.length
+            appendInline(value, to: result)
+            result.addAttribute(
+                .font,
+                value: UIFont.systemFont(ofSize: level == 1 ? 21 : level == 2 ? 18 : 16, weight: .bold),
+                range: NSRange(location: start, length: result.length - start)
+            )
+            appendRaw("\n\n", to: result)
+        case .bullet(let indent, let value):
+            appendRaw(String(repeating: "  ", count: indent) + "• ", to: result)
+            appendInline(value, to: result)
+            appendRaw("\n", to: result)
+        case .numbered(let indent, let label, let value):
+            appendRaw(String(repeating: "  ", count: indent) + "\(label) ", to: result)
+            appendInline(value, to: result)
+            appendRaw("\n", to: result)
+        case .quote(let value):
+            appendRaw("▎ ", to: result, color: UIColor(ChatTheme.textDim))
+            appendInline(value, to: result)
+            appendRaw("\n", to: result)
+        case .code(let value):
+            appendRaw(
+                value.isEmpty ? " " : value,
+                to: result,
+                font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            )
+            appendRaw("\n", to: result)
+        case .rule:
+            appendRaw("────────────────\n", to: result, color: UIColor(ChatTheme.border))
+        case .table(let value):
+            appendRaw(
+                "\(value)\n",
+                to: result,
+                font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            )
         }
     }
 
-    private func lineText(_ line: MarkdownLine) -> Text {
-        switch line {
-        case .blank:
-            return Text("\n")
-        case .text(let value):
-            return Text(markdownText(value)) + Text("\n")
-        case .heading(let level, let value):
-            return Text(markdownText(value))
-                .font(.system(size: level == 1 ? 21 : level == 2 ? 18 : 16, weight: .bold))
-                + Text("\n\n")
-        case .bullet(let indent, let value):
-            return Text(String(repeating: "  ", count: indent) + "• ")
-                + Text(markdownText(value))
-                + Text("\n")
-        case .numbered(let indent, let label, let value):
-            return Text(String(repeating: "  ", count: indent) + "\(label) ")
-                + Text(markdownText(value))
-                + Text("\n")
-        case .quote(let value):
-            return Text("▎ ").foregroundColor(ChatTheme.textDim)
-                + Text(markdownText(value))
-                + Text("\n")
-        case .code(let value):
-            return Text(value.isEmpty ? " " : value)
-                .font(.system(size: 13, design: .monospaced))
-                + Text("\n")
-        case .rule:
-            return Text("────────────────")
-                .foregroundColor(ChatTheme.border)
-                + Text("\n")
-        case .table(let value):
-            return Text(value)
-                .font(.system(size: 13, design: .monospaced))
-                + Text("\n")
-        }
+    private func appendInline(_ value: String, to result: NSMutableAttributedString) {
+        result.append(NSAttributedString(markdownText(value)))
+    }
+
+    private func appendRaw(
+        _ value: String,
+        to result: NSMutableAttributedString,
+        color: UIColor? = nil,
+        font: UIFont? = nil
+    ) {
+        var attributes = baseAttributes
+        if let color { attributes[.foregroundColor] = color }
+        if let font { attributes[.font] = font }
+        result.append(NSAttributedString(string: value, attributes: attributes))
+    }
+}
+
+private struct SelectableMarkdownTextView: UIViewRepresentable {
+    let attributedText: NSAttributedString
+    let textColor: UIColor
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.backgroundColor = .clear
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.adjustsFontForContentSizeCategory = true
+        textView.dataDetectorTypes = [.link]
+        textView.setContentHuggingPriority(.required, for: .vertical)
+        textView.setContentCompressionResistancePriority(.required, for: .vertical)
+        return textView
+    }
+
+    func updateUIView(_ textView: UITextView, context: Context) {
+        textView.textColor = textColor
+        textView.font = UIFont.systemFont(ofSize: 15)
+        textView.attributedText = attributedText
+        textView.linkTextAttributes = [.foregroundColor: UIColor(ChatTheme.codex)]
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: size.height)
     }
 }
 
@@ -845,32 +913,25 @@ private struct ChatTurnRow: View, Equatable {
     @ViewBuilder
     private func turnContent(errorStyled: Bool) -> some View {
         if !turn.segments.isEmpty {
-            // .textSelection(.enabled) is applied once, to this whole
-            // VStack, rather than per-Text inside the loop. SwiftUI treats
-            // a container carrying the modifier as ONE selection region
-            // spanning all the Text views inside it, so a drag can select
-            // continuously across multiple segments. Putting the modifier
-            // on each small Text individually (the old code) makes every
-            // segment its own isolated selection island instead.
+            // Text segments use UITextView internally for real native range
+            // selection. Tool rows retain their own tap/expand behaviour.
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(turn.segments) { seg in
                     if seg.type == "text", let text = seg.text, !text.isEmpty {
-                        MarkdownTextView(text: text)
-                            .font(.system(size: 15))
-                            .foregroundColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
-                            .lineSpacing(3)
+                        MarkdownTextView(
+                            text: text,
+                            textColor: UIColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
+                        )
                     } else if seg.type == "tool" {
                         InlineToolSegmentView(segment: seg)
                     }
                 }
             }
-            .textSelection(.enabled)
         } else {
-            MarkdownTextView(text: turn.text)
-                .font(.system(size: 15))
-                .foregroundColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
-                .lineSpacing(3)
-                .textSelection(.enabled)
+            MarkdownTextView(
+                text: turn.text,
+                textColor: UIColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
+            )
         }
     }
 
