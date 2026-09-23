@@ -830,8 +830,14 @@ private struct MarkdownTextView: View {
     private func appendInline(_ value: String, to result: NSMutableAttributedString) {
         let inline = NSMutableAttributedString(attributedString: NSAttributedString(markdownText(value)))
         // Bridging AttributedString to NSAttributedString carries Apple's
-        // default black foreground colour. Override it for Relay's dark UI;
-        // this leaves semantic traits such as bold/italic and links intact.
+        // default small text font and black foreground colour. Explicitly
+        // apply Relay's reading size before the individual block renderer
+        // upgrades headings below.
+        inline.addAttribute(
+            .font,
+            value: UIFont.systemFont(ofSize: 18),
+            range: NSRange(location: 0, length: inline.length)
+        )
         inline.addAttribute(
             .foregroundColor,
             value: textColor,
