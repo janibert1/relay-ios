@@ -642,24 +642,13 @@ struct ChatView: View {
 // MARK: - Markdown rendering
 
 private func markdownText(_ text: String) -> AttributedString {
-    // Apple's Markdown parser (.full syntax) treats a bare single "\n" as an
-    // insignificant soft break and drops it entirely (not even a space).
-    // Convert ONLY isolated newlines to CommonMark hard breaks. Rewriting
-    // every newline also rewrites the two newlines that delimit paragraphs,
-    // headers, lists and quotes, making those blocks run together (observed
-    // in the live Markdown stress test on 2026-09-23).
-    let unixNewlines = text
-        .replacingOccurrences(of: "\r\n", with: "\n")
-        .replacingOccurrences(of: "\r", with: "\n")
-    let normalized = unixNewlines.replacingOccurrences(
-        of: "(?<!\\n)\\n(?!\\n)",
-        with: "  \n",
-        options: .regularExpression
-    )
+    // AttributedString's Markdown parser is excellent for inline styling,
+    // but discards the actual newline characters around block syntax. Feed it
+    // one line at a time; MarkdownTextView owns the visible block layout.
     var options = AttributedString.MarkdownParsingOptions()
     options.interpretedSyntax = .full
     options.failurePolicy = .returnPartiallyParsedIfPossible
-    guard var attributed = try? AttributedString(markdown: normalized, options: options) else {
+    guard var attributed = try? AttributedString(markdown: text, options: options) else {
         return AttributedString(text)
     }
     for run in attributed.runs {
@@ -668,6 +657,158 @@ private func markdownText(_ text: String) -> AttributedString {
         }
     }
     return attributed
+}
+
+private enum MarkdownLine {
+    case blank
+    case text(String)
+    case heading(level: Int, text: String)
+    case bullet(indent: Int, text: String)
+    case numbered(indent: Int, label: String, text: String)
+    case quote(String)
+    case code(String)
+    case rule
+    case table(String)
+}
+
+/// A block-aware Markdown renderer. Apple's AttributedString strips the
+/// newline characters around headers/lists/quotes ("# Header\n\nText" becomes
+/// "HeaderText"), so a single Text view can never lay those blocks out
+/// correctly. This view keeps each source line as a real SwiftUI row and
+/// uses AttributedString only for inline formatting within that row.
+private struct MarkdownTextView: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                lineView(line)
+            }
+        }
+    }
+
+    private var lines: [MarkdownLine] {
+        var result: [MarkdownLine] = []
+        var inCodeFence = false
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+
+        for rawLine in normalized.components(separatedBy: "\n") {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                inCodeFence.toggle()
+                continue
+            }
+            if inCodeFence {
+                result.append(.code(rawLine))
+                continue
+            }
+            if trimmed.isEmpty {
+                result.append(.blank)
+            } else if let heading = heading(from: trimmed) {
+                result.append(heading)
+            } else if trimmed.count >= 3, trimmed.allSatisfy({ $0 == "-" }) {
+                result.append(.rule)
+            } else if trimmed.hasPrefix(">") {
+                result.append(.quote(String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)))
+            } else if let numbered = numberedLine(from: trimmed, indent: indentation(of: rawLine)) {
+                result.append(numbered)
+            } else if let bullet = bulletLine(from: trimmed, indent: indentation(of: rawLine)) {
+                result.append(bullet)
+            } else if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") {
+                result.append(.table(trimmed))
+            } else {
+                result.append(.text(rawLine))
+            }
+        }
+        return result
+    }
+
+    private func heading(from line: String) -> MarkdownLine? {
+        let hashes = line.prefix { $0 == "#" }
+        guard !hashes.isEmpty, hashes.count <= 6,
+              line.dropFirst(hashes.count).first == " " else { return nil }
+        return .heading(
+            level: hashes.count,
+            text: String(line.dropFirst(hashes.count)).trimmingCharacters(in: .whitespaces)
+        )
+    }
+
+    private func bulletLine(from line: String, indent: Int) -> MarkdownLine? {
+        guard line.count >= 2,
+              ["-", "*", "+"].contains(line.first.map(String.init) ?? ""),
+              line.dropFirst().first == " " else { return nil }
+        return .bullet(indent: indent, text: String(line.dropFirst()).trimmingCharacters(in: .whitespaces))
+    }
+
+    private func numberedLine(from line: String, indent: Int) -> MarkdownLine? {
+        guard let range = line.range(of: "^\\d+\\.\\s+", options: .regularExpression) else { return nil }
+        let label = String(line[range]).trimmingCharacters(in: .whitespaces)
+        return .numbered(
+            indent: indent,
+            label: label,
+            text: String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+        )
+    }
+
+    private func indentation(of line: String) -> Int {
+        line.prefix { $0 == " " || $0 == "\t" }.count / 2
+    }
+
+    @ViewBuilder
+    private func lineView(_ line: MarkdownLine) -> some View {
+        switch line {
+        case .blank:
+            Color.clear.frame(height: 7)
+        case .text(let value):
+            Text(markdownText(value))
+                .fixedSize(horizontal: false, vertical: true)
+        case .heading(let level, let value):
+            Text(markdownText(value))
+                .font(.system(size: level == 1 ? 21 : level == 2 ? 18 : 16, weight: .bold))
+                .fixedSize(horizontal: false, vertical: true)
+        case .bullet(let indent, let value):
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text("•")
+                Text(markdownText(value))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.leading, CGFloat(indent * 16))
+        case .numbered(let indent, let label, let value):
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(label)
+                    .frame(minWidth: 19, alignment: .trailing)
+                Text(markdownText(value))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.leading, CGFloat(indent * 16))
+        case .quote(let value):
+            HStack(alignment: .top, spacing: 8) {
+                Rectangle()
+                    .fill(ChatTheme.textDim)
+                    .frame(width: 3)
+                Text(markdownText(value))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.leading, 2)
+        case .code(let value):
+            Text(value.isEmpty ? " " : value)
+                .font(.system(size: 13, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(ChatTheme.rawBubble)
+                .cornerRadius(5)
+        case .rule:
+            Divider().background(ChatTheme.border)
+                .padding(.vertical, 3)
+        case .table(let value):
+            Text(value)
+                .font(.system(size: 13, design: .monospaced))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 }
 
 // MARK: - Turn Row & Bubble Views
@@ -720,7 +861,7 @@ private struct ChatTurnRow: View, Equatable {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(turn.segments) { seg in
                     if seg.type == "text", let text = seg.text, !text.isEmpty {
-                        Text(markdownText(text))
+                        MarkdownTextView(text: text)
                             .font(.system(size: 15))
                             .foregroundColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
                             .lineSpacing(3)
@@ -731,7 +872,7 @@ private struct ChatTurnRow: View, Equatable {
             }
             .textSelection(.enabled)
         } else {
-            Text(markdownText(turn.text))
+            MarkdownTextView(text: turn.text)
                 .font(.system(size: 15))
                 .foregroundColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
                 .lineSpacing(3)
