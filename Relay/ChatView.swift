@@ -643,14 +643,19 @@ struct ChatView: View {
 
 private func markdownText(_ text: String) -> AttributedString {
     // Apple's Markdown parser (.full syntax) treats a bare single "\n" as an
-    // insignificant soft break and drops it entirely (not even a space) —
-    // confirmed live 2026-09-23: model output separated by plain newlines
-    // (not blank-line paragraph breaks) rendered as running text with words
-    // jammed together ("warning.Verification"). Forcing every newline into
-    // a real CommonMark hard break (trailing two spaces) makes the parser
-    // preserve it as a visible line break regardless of whether the source
-    // used single or double newlines.
-    let normalized = text.replacingOccurrences(of: "\n", with: "  \n")
+    // insignificant soft break and drops it entirely (not even a space).
+    // Convert ONLY isolated newlines to CommonMark hard breaks. Rewriting
+    // every newline also rewrites the two newlines that delimit paragraphs,
+    // headers, lists and quotes, making those blocks run together (observed
+    // in the live Markdown stress test on 2026-09-23).
+    let unixNewlines = text
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
+    let normalized = unixNewlines.replacingOccurrences(
+        of: "(?<!\\n)\\n(?!\\n)",
+        with: "  \n",
+        options: .regularExpression
+    )
     var options = AttributedString.MarkdownParsingOptions()
     options.interpretedSyntax = .full
     options.failurePolicy = .returnPartiallyParsedIfPossible
