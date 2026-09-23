@@ -830,12 +830,12 @@ private struct MarkdownTextView: View {
     private func appendInline(_ value: String, to result: NSMutableAttributedString) {
         let inline = NSMutableAttributedString(attributedString: NSAttributedString(markdownText(value)))
         // Bridging AttributedString to NSAttributedString carries Apple's
-        // default small text font and black foreground colour. Explicitly
-        // apply Relay's reading size before the individual block renderer
+        // default text font and black foreground colour. Explicitly apply
+        // Relay's reading size before the individual block renderer
         // upgrades headings below.
         inline.addAttribute(
             .font,
-            value: UIFont.systemFont(ofSize: 18),
+            value: UIFont.systemFont(ofSize: 17),
             range: NSRange(location: 0, length: inline.length)
         )
         inline.addAttribute(
@@ -871,7 +871,9 @@ private struct SelectableMarkdownTextView: UIViewRepresentable {
         textView.isScrollEnabled = false
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
-        textView.adjustsFontForContentSizeCategory = true
+        // SwiftUI's user bubble uses a fixed size; do the same here so the
+        // UIKit bridge cannot silently scale selectable assistant text larger.
+        textView.adjustsFontForContentSizeCategory = false
         textView.dataDetectorTypes = [.link]
         textView.setContentHuggingPriority(.required, for: .vertical)
         textView.setContentCompressionResistancePriority(.required, for: .vertical)
