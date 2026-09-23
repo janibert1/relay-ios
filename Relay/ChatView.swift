@@ -59,7 +59,10 @@ struct ChatView: View {
     @State private var sessionDetail: SessionDetail?
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var inputMessage = ""
+    // A draft belongs to its session, not to this transient ChatView value.
+    // Navigation recreates ChatView, so plain @State discarded anything the
+    // user had typed when they went back to the session list.
+    @SceneStorage private var inputMessage: String
     @State private var isSending = false
     @State private var isStopping = false
     @State private var isShowingModelSwitchSheet = false
@@ -81,6 +84,7 @@ struct ChatView: View {
     init(sessionName: String, apiClient: RelayAPIClient = .shared) {
         self.sessionName = sessionName
         self.apiClient = apiClient
+        _inputMessage = SceneStorage(wrappedValue: "", "relay.draft.\(sessionName)")
     }
 
     private var isBusy: Bool {
@@ -680,11 +684,12 @@ private struct MarkdownTextView: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                lineView(line)
-            }
-        }
+        // Text selection only supports an arbitrary drag range inside one
+        // Text surface. A VStack of one Text per Markdown row looked right,
+        // but iOS selected each row as an all-or-nothing block. Concatenating
+        // the styled line fragments retains our block-aware layout while
+        // giving the whole message one continuous native selection range.
+        renderedText
     }
 
     private var lines: [MarkdownLine] {
@@ -756,57 +761,46 @@ private struct MarkdownTextView: View {
         line.prefix { $0 == " " || $0 == "\t" }.count / 2
     }
 
-    @ViewBuilder
-    private func lineView(_ line: MarkdownLine) -> some View {
+    private var renderedText: Text {
+        lines.reduce(Text("")) { partial, line in
+            partial + lineText(line)
+        }
+    }
+
+    private func lineText(_ line: MarkdownLine) -> Text {
         switch line {
         case .blank:
-            Color.clear.frame(height: 7)
+            return Text("\n")
         case .text(let value):
-            Text(markdownText(value))
-                .fixedSize(horizontal: false, vertical: true)
+            return Text(markdownText(value)) + Text("\n")
         case .heading(let level, let value):
-            Text(markdownText(value))
+            return Text(markdownText(value))
                 .font(.system(size: level == 1 ? 21 : level == 2 ? 18 : 16, weight: .bold))
-                .fixedSize(horizontal: false, vertical: true)
+                + Text("\n\n")
         case .bullet(let indent, let value):
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text("•")
-                Text(markdownText(value))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.leading, CGFloat(indent * 16))
+            return Text(String(repeating: "  ", count: indent) + "• ")
+                + Text(markdownText(value))
+                + Text("\n")
         case .numbered(let indent, let label, let value):
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text(label)
-                    .frame(minWidth: 19, alignment: .trailing)
-                Text(markdownText(value))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.leading, CGFloat(indent * 16))
+            return Text(String(repeating: "  ", count: indent) + "\(label) ")
+                + Text(markdownText(value))
+                + Text("\n")
         case .quote(let value):
-            HStack(alignment: .top, spacing: 8) {
-                Rectangle()
-                    .fill(ChatTheme.textDim)
-                    .frame(width: 3)
-                Text(markdownText(value))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.leading, 2)
+            return Text("▎ ").foregroundColor(ChatTheme.textDim)
+                + Text(markdownText(value))
+                + Text("\n")
         case .code(let value):
-            Text(value.isEmpty ? " " : value)
+            return Text(value.isEmpty ? " " : value)
                 .font(.system(size: 13, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(ChatTheme.rawBubble)
-                .cornerRadius(5)
+                + Text("\n")
         case .rule:
-            Divider().background(ChatTheme.border)
-                .padding(.vertical, 3)
+            return Text("────────────────")
+                .foregroundColor(ChatTheme.border)
+                + Text("\n")
         case .table(let value):
-            Text(value)
+            return Text(value)
                 .font(.system(size: 13, design: .monospaced))
-                .fixedSize(horizontal: false, vertical: true)
+                + Text("\n")
         }
     }
 }
