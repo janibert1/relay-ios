@@ -628,10 +628,19 @@ struct ChatView: View {
 // MARK: - Markdown rendering
 
 private func markdownText(_ text: String) -> AttributedString {
+    // Apple's Markdown parser (.full syntax) treats a bare single "\n" as an
+    // insignificant soft break and drops it entirely (not even a space) —
+    // confirmed live 2026-09-23: model output separated by plain newlines
+    // (not blank-line paragraph breaks) rendered as running text with words
+    // jammed together ("warning.Verification"). Forcing every newline into
+    // a real CommonMark hard break (trailing two spaces) makes the parser
+    // preserve it as a visible line break regardless of whether the source
+    // used single or double newlines.
+    let normalized = text.replacingOccurrences(of: "\n", with: "  \n")
     var options = AttributedString.MarkdownParsingOptions()
     options.interpretedSyntax = .full
     options.failurePolicy = .returnPartiallyParsedIfPossible
-    guard var attributed = try? AttributedString(markdown: text, options: options) else {
+    guard var attributed = try? AttributedString(markdown: normalized, options: options) else {
         return AttributedString(text)
     }
     for run in attributed.runs {
@@ -682,6 +691,13 @@ private struct ChatTurnRow: View, Equatable {
     @ViewBuilder
     private func turnContent(errorStyled: Bool) -> some View {
         if !turn.segments.isEmpty {
+            // .textSelection(.enabled) is applied once, to this whole
+            // VStack, rather than per-Text inside the loop. SwiftUI treats
+            // a container carrying the modifier as ONE selection region
+            // spanning all the Text views inside it, so a drag can select
+            // continuously across multiple segments. Putting the modifier
+            // on each small Text individually (the old code) makes every
+            // segment its own isolated selection island instead.
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(turn.segments) { seg in
                     if seg.type == "text", let text = seg.text, !text.isEmpty {
@@ -689,12 +705,12 @@ private struct ChatTurnRow: View, Equatable {
                             .font(.system(size: 15))
                             .foregroundColor(errorStyled ? ChatTheme.danger : ChatTheme.textPrimary)
                             .lineSpacing(3)
-                            .textSelection(.enabled)
                     } else if seg.type == "tool" {
                         InlineToolSegmentView(segment: seg)
                     }
                 }
             }
+            .textSelection(.enabled)
         } else {
             Text(markdownText(turn.text))
                 .font(.system(size: 15))
@@ -914,6 +930,7 @@ private struct ToolCallRow: View {
                             .foregroundColor(ChatTheme.textDim)
                             .lineLimit(isExpanded ? nil : 3)
                     }
+                    .textSelection(.enabled)
                     Spacer()
                     if call.output != nil {
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
@@ -924,7 +941,6 @@ private struct ToolCallRow: View {
                 }
             }
             .buttonStyle(.plain)
-            .textSelection(.enabled)
 
             if isExpanded, let output = call.output {
                 Text(output)
