@@ -5,6 +5,27 @@ struct RelayApp: App {
     @UIApplicationDelegateAdaptor(PushAppDelegate.self) var appDelegate
     @State private var deepLinkedSessionName: String?
 
+    private func openSession(from url: URL) {
+        let sessionName: String?
+
+        // Keep supporting the old link format so notifications already
+        // delivered before the Universal Link rollout remain useful.
+        if url.scheme?.lowercased() == "relay", url.host == "session" {
+            sessionName = url.pathComponents.first { $0 != "/" }
+        } else if url.scheme?.lowercased() == "https",
+                  url.host?.lowercased() == "jdries.nl",
+                  url.pathComponents.count == 4,
+                  url.pathComponents[1] == "relay",
+                  url.pathComponents[2] == "session" {
+            sessionName = url.pathComponents[3]
+        } else {
+            sessionName = nil
+        }
+
+        guard let sessionName, !sessionName.isEmpty else { return }
+        deepLinkedSessionName = sessionName
+    }
+
     var body: some Scene {
         WindowGroup {
             SessionListView(deepLinkedSessionName: $deepLinkedSessionName)
@@ -12,15 +33,11 @@ struct RelayApp: App {
                     PushNotifications.requestAuthorizationAndRegister()
                 }
                 .onOpenURL { url in
-                    // ntfy completion notifications carry
-                    // relay://session/<internal-session-name>. A malformed
-                    // or unrelated link is simply ignored.
-                    guard url.scheme?.lowercased() == "relay", url.host == "session" else {
-                        return
-                    }
-                    let name = url.pathComponents.first { $0 != "/" } ?? ""
-                    guard !name.isEmpty else { return }
-                    deepLinkedSessionName = name
+                    openSession(from: url)
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    guard let url = activity.webpageURL else { return }
+                    openSession(from: url)
                 }
         }
     }
