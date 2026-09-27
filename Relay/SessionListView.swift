@@ -351,6 +351,7 @@ private struct BackendBadge: View {
         case .codex: return "Codex"
         case .gemini: return "Gemini"
         case .openrouter: return "OpenRouter"
+        case .omniroute: return "OmniRoute"
         }
     }
 
@@ -368,6 +369,9 @@ private struct BackendBadge: View {
         case .openrouter:
             // OpenRouter green (#4ade80)
             return Color(red: 0.290, green: 0.871, blue: 0.502)
+        case .omniroute:
+            // OmniRoute amber (#f0a84b)
+            return Color(red: 0.941, green: 0.659, blue: 0.294)
         }
     }
 }

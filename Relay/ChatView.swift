@@ -31,6 +31,7 @@ private enum ChatTheme {
     static let codex = Color(red: 116 / 255, green: 185 / 255, blue: 255 / 255) // #74b9ff
     static let gemini = Color(red: 142 / 255, green: 108 / 255, blue: 239 / 255) // #8e6cef
     static let openrouter = Color(red: 74 / 255, green: 222 / 255, blue: 128 / 255) // #4ade80
+    static let omniroute = Color(red: 240 / 255, green: 168 / 255, blue: 75 / 255) // #f0a84b
 
     static let danger = Color(red: 1.0, green: 0.42, blue: 0.42)               // #ff6b6b
     static let dangerBg = Color(red: 0.165, green: 0.08, blue: 0.08)            // #2a1414
@@ -47,6 +48,7 @@ private enum ChatTheme {
         case .codex: return codex
         case .gemini: return gemini
         case .openrouter: return openrouter
+        case .omniroute: return omniroute
         }
     }
 }

@@ -81,6 +81,9 @@ final class RelayAPIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        // Lets relay-api preserve a legacy-compatible view for already
+        // installed clients while this build receives new backend ids.
+        request.setValue("2.9.0", forHTTPHeaderField: "X-Relay-Client-Version")
         return request
     }
 

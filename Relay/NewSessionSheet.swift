@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// Sheet for creating a new Relay session.
-/// Supports choosing between Claude, Codex, Gemini, and OpenRouter
+/// Supports choosing between Claude, Codex, Gemini, OpenRouter, and OmniRoute
 /// backends, validating session names, configuring optional working
 /// directory, dynamic model selection per backend, and optional effort
-/// level (hidden for OpenRouter, which has none).
+/// level (hidden for the free backends, which have none).
 struct NewSessionSheet: View {
     let apiClient: RelayAPIClient
     var onCreated: ((SessionSummary) -> Void)?
@@ -30,7 +30,7 @@ struct NewSessionSheet: View {
 
     // MARK: - Constants
 
-    private let availableBackends: [BackendId] = [.claude, .codex, .gemini, .openrouter]
+    private let availableBackends: [BackendId] = [.claude, .codex, .gemini, .openrouter, .omniroute]
 
     private let effortOptions: [(value: String, label: String)] = [
         ("", "default"),
@@ -134,9 +134,7 @@ struct NewSessionSheet: View {
                     .frame(width: 7, height: 7)
                     .padding(.top, 4)
 
-                Text(selectedBackend == .openrouter
-                     ? "OpenRouter is free, no subscription needed — good for quick/simple chats. Claude, Codex, and Gemini are the paid backends; any of them can drop down to a free OpenRouter model later, but never back up to a paid one."
-                     : "Backend is locked in once created — you can change model any time, and can always drop down to a free OpenRouter model later, but never back up to a paid backend.")
+                Text(backendDescription)
                     .font(.system(size: 12))
                     .foregroundColor(dimTextColor)
                     .lineSpacing(2)
@@ -258,7 +256,7 @@ struct NewSessionSheet: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
 
-                if selectedBackend != .openrouter {
+                if !selectedBackend.isFreeBackend {
                     Divider()
                         .background(cardBorder)
                         .padding(.horizontal, 14)
@@ -415,6 +413,20 @@ struct NewSessionSheet: View {
         case .openrouter:
             // OpenRouter green (#4ade80)
             return Color(red: 0.290, green: 0.871, blue: 0.502)
+        case .omniroute:
+            // OmniRoute amber (#f0a84b)
+            return Color(red: 0.941, green: 0.659, blue: 0.294)
+        }
+    }
+
+    private var backendDescription: String {
+        switch selectedBackend {
+        case .openrouter:
+            return "OpenRouter is free, no subscription needed — good for quick/simple chats. Claude, Codex, and Gemini are the paid backends; any of them can drop down to a free OpenRouter model later, but never back up to a paid one."
+        case .omniroute:
+            return "OmniRoute is the local staging gateway for the same free OpenRouter models. It is isolated from the stable OpenRouter path while we validate it."
+        default:
+            return "Backend is locked in once created — you can change model any time, and can always drop down to a free OpenRouter model later, but never back up to a paid backend."
         }
     }
 

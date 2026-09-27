@@ -1,7 +1,7 @@
 import Foundation
 
 enum BackendId: String, Codable, CaseIterable, Equatable, Hashable {
-    case claude, codex, gemini, openrouter
+    case claude, codex, gemini, openrouter, omniroute
 }
 
 extension BackendId {
@@ -11,7 +11,12 @@ extension BackendId {
         case .codex: return "Codex"
         case .gemini: return "Gemini"
         case .openrouter: return "OpenRouter"
+        case .omniroute: return "OmniRoute"
         }
+    }
+
+    var isFreeBackend: Bool {
+        self == .openrouter || self == .omniroute
     }
 }
 
