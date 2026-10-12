@@ -30,6 +30,7 @@ private enum ChatTheme {
     static let claude = Color(red: 215 / 255, green: 117 / 255, blue: 87 / 255) // #d77557
     static let codex = Color(red: 116 / 255, green: 185 / 255, blue: 255 / 255) // #74b9ff
     static let gemini = Color(red: 142 / 255, green: 108 / 255, blue: 239 / 255) // #8e6cef
+    static let gemini2 = Color(red: 59 / 255, green: 185 / 255, blue: 189 / 255) // #3bb9bd
     static let openrouter = Color(red: 74 / 255, green: 222 / 255, blue: 128 / 255) // #4ade80
     static let omniroute = Color(red: 240 / 255, green: 168 / 255, blue: 75 / 255) // #f0a84b
 
@@ -47,6 +48,7 @@ private enum ChatTheme {
         case .claude: return claude
         case .codex: return codex
         case .gemini: return gemini
+        case .gemini2: return gemini2
         case .openrouter: return openrouter
         case .omniroute: return omniroute
         }
@@ -83,6 +85,7 @@ struct ChatView: View {
     @State private var attachError: String?
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var isShowingFileImporter = false
+    @State private var isShowingCamera = false
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -145,6 +148,12 @@ struct ChatView: View {
                     await loadDetail()
                 }
             }, apiClient: apiClient)
+        }
+        .sheet(isPresented: $isShowingCamera) {
+            CameraCapturePicker { image in
+                Task { await uploadCapturedPhoto(image) }
+            }
+            .ignoresSafeArea()
         }
         .fileImporter(
             isPresented: $isShowingFileImporter,
@@ -426,6 +435,16 @@ struct ChatView: View {
                 .accessibilityLabel("Choose Photo or Video")
                 .disabled(isUploadingAttachment)
 
+                Button {
+                    isShowingCamera = true
+                } label: {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(ChatTheme.textDim)
+                }
+                .accessibilityLabel("Take Photo")
+                .disabled(isUploadingAttachment || !UIImagePickerController.isSourceTypeAvailable(.camera))
+
                 TextField("Message...", text: $inputMessage, axis: .vertical)
                     .lineLimit(1...5)
                     .padding(.horizontal, 14)
@@ -605,6 +624,30 @@ struct ChatView: View {
         isUploadingAttachment = false
     }
 
+    @MainActor
+    private func uploadCapturedPhoto(_ image: UIImage) async {
+        isUploadingAttachment = true
+        attachError = nil
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            attachError = "Could not prepare the captured photo."
+            isUploadingAttachment = false
+            return
+        }
+        let fileName = "camera-\(Int(Date().timeIntervalSince1970)).jpg"
+        do {
+            let response = try await apiClient.uploadFile(
+                sessionName: sessionName, fileData: data, fileName: fileName, mimeType: "image/jpeg"
+            )
+            pendingAttachments.append(
+                PendingAttachment(relayPath: response.path, displayName: fileName, warning: response.warning)
+            )
+            attachError = response.warning
+        } catch {
+            attachError = error.localizedDescription
+        }
+        isUploadingAttachment = false
+    }
+
     // MARK: - Polling & Actions
 
     private func startPolling() {
@@ -689,6 +732,48 @@ struct ChatView: View {
     }
 }
 
+/// Native camera capture, kept separate from PhotosPicker so “take a photo”
+/// never silently opens the library. The image uses the same per-session
+/// upload endpoint as every other Relay attachment.
+private struct CameraCapturePicker: UIViewControllerRepresentable {
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        private let parent: CameraCapturePicker
+
+        init(parent: CameraCapturePicker) { self.parent = parent }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            guard let image = info[.originalImage] as? UIImage else {
+                parent.dismiss()
+                return
+            }
+            parent.dismiss()
+            parent.onImage(image)
+        }
+    }
+}
+
 // MARK: - Markdown rendering
 
 private func markdownText(_ text: String) -> AttributedString {
@@ -709,6 +794,84 @@ private func markdownText(_ text: String) -> AttributedString {
     return attributed
 }
 
+private struct MarkdownTableData: Identifiable, Equatable {
+    let headers: [String]
+    let alignments: [NSTextAlignment]
+    let rows: [[String]]
+
+    var id: String {
+        "table-\(headers.joined(separator: "|"))-\(rows.first?.first ?? "")-\(rows.count)"
+    }
+
+    static func == (lhs: MarkdownTableData, rhs: MarkdownTableData) -> Bool {
+        lhs.headers == rhs.headers && lhs.rows == rhs.rows
+    }
+}
+
+private func parseTableRow(_ line: String) -> [String] {
+    var trimmed = line.trimmingCharacters(in: .whitespaces)
+    if trimmed.hasPrefix("|") { trimmed.removeFirst() }
+    if trimmed.hasSuffix("|") { trimmed.removeLast() }
+
+    var cells: [String] = []
+    var current = ""
+    var inBacktick = false
+    var inMath = false
+    let chars = Array(trimmed)
+    var idx = 0
+    while idx < chars.count {
+        let ch = chars[idx]
+        if ch == "`" {
+            inBacktick.toggle()
+            current.append(ch)
+        } else if ch == "$" && !inBacktick {
+            inMath.toggle()
+            current.append(ch)
+        } else if ch == "\\" && idx + 1 < chars.count {
+            if chars[idx + 1] == "|" {
+                current.append("|")
+                idx += 1
+            } else {
+                current.append(ch)
+                current.append(chars[idx + 1])
+                idx += 1
+            }
+        } else if ch == "|" && !inBacktick && !inMath {
+            cells.append(current.trimmingCharacters(in: .whitespaces))
+            current = ""
+        } else {
+            current.append(ch)
+        }
+        idx += 1
+    }
+    cells.append(current.trimmingCharacters(in: .whitespaces))
+    return cells
+}
+
+private func parseTableDelimiterRow(_ line: String) -> [NSTextAlignment]? {
+    guard line.contains("-") else { return nil }
+    let cells = parseTableRow(line)
+    guard !cells.isEmpty else { return nil }
+    var alignments: [NSTextAlignment] = []
+    for cell in cells {
+        let trimmed = cell.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains("-") else { return nil }
+        let hasLeftColon = trimmed.hasPrefix(":")
+        let hasRightColon = trimmed.hasSuffix(":")
+        let core = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+        guard !core.isEmpty && core.allSatisfy({ $0 == "-" }) else { return nil }
+
+        if hasLeftColon && hasRightColon {
+            alignments.append(.center)
+        } else if hasRightColon {
+            alignments.append(.right)
+        } else {
+            alignments.append(.left)
+        }
+    }
+    return alignments
+}
+
 private enum MarkdownLine {
     case blank
     case text(String)
@@ -718,7 +881,7 @@ private enum MarkdownLine {
     case quote(String)
     case code(String)
     case rule
-    case table(String)
+    case tableBlock(MarkdownTableData)
     case mathBlock(String)
 }
 
@@ -1243,12 +1406,279 @@ private func splitInlineMathSegments(_ text: String) -> [InlineSegment] {
 /// "HeaderText"), so a single Text view can never lay those blocks out
 /// correctly. This view keeps each source line as a real SwiftUI row and
 /// uses AttributedString only for inline formatting within that row.
+private func applyRelayInlineStyling(to inline: NSMutableAttributedString, baseSize: CGFloat, defaultColor: UIColor) {
+    inline.enumerateAttribute(.font, in: NSRange(location: 0, length: inline.length)) { fontObj, range, _ in
+        if let font = fontObj as? UIFont {
+            let descriptor = font.fontDescriptor
+            let isBold = descriptor.symbolicTraits.contains(.traitBold)
+            let isItalic = descriptor.symbolicTraits.contains(.traitItalic)
+            let isMono = descriptor.symbolicTraits.contains(.traitMonoSpace)
+
+            let targetFont: UIFont
+            if isMono {
+                targetFont = UIFont.monospacedSystemFont(ofSize: max(12, baseSize - 2), weight: isBold ? .bold : .regular)
+            } else if isBold && isItalic {
+                let base = UIFont.systemFont(ofSize: baseSize, weight: .bold)
+                if let sym = base.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
+                    targetFont = UIFont(descriptor: sym, size: baseSize)
+                } else {
+                    targetFont = base
+                }
+            } else if isBold {
+                targetFont = UIFont.systemFont(ofSize: baseSize, weight: .bold)
+            } else if isItalic {
+                targetFont = UIFont.italicSystemFont(ofSize: baseSize)
+            } else {
+                targetFont = UIFont.systemFont(ofSize: baseSize)
+            }
+            inline.addAttribute(.font, value: targetFont, range: range)
+        } else {
+            inline.addAttribute(.font, value: UIFont.systemFont(ofSize: baseSize), range: range)
+        }
+    }
+
+    inline.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: inline.length)) { colorObj, range, _ in
+        if colorObj == nil {
+            inline.addAttribute(.foregroundColor, value: defaultColor, range: range)
+        }
+    }
+}
+
+private func renderCellAttributedString(
+    _ text: String,
+    textColor: UIColor,
+    isHeader: Bool,
+    baseSize: CGFloat = 13.5
+) -> AttributedString {
+    let cleaned = text.replacingOccurrences(
+        of: "<br\\s*/?>",
+        with: "\n",
+        options: .regularExpression
+    )
+    let result = NSMutableAttributedString()
+    let segments = splitInlineMathSegments(cleaned)
+    for segment in segments {
+        switch segment {
+        case .text(let segText):
+            var options = AttributedString.MarkdownParsingOptions()
+            options.interpretedSyntax = .full
+            options.failurePolicy = .returnPartiallyParsedIfPossible
+            let parsed = (try? AttributedString(markdown: segText, options: options)) ?? AttributedString(segText)
+            let inline = NSMutableAttributedString(attributedString: NSAttributedString(parsed))
+            applyRelayInlineStyling(to: inline, baseSize: baseSize, defaultColor: textColor)
+            if isHeader {
+                inline.addAttribute(
+                    .font,
+                    value: UIFont.systemFont(ofSize: baseSize, weight: .semibold),
+                    range: NSRange(location: 0, length: inline.length)
+                )
+            }
+            result.append(inline)
+        case .inlineMath(let math):
+            let mathAttr = renderLaTeXMath(math, isDisplayMode: false, textColor: textColor, baseSize: baseSize)
+            result.append(mathAttr)
+        case .displayMath(let math):
+            result.append(NSAttributedString(string: "\n"))
+            let mathAttr = renderLaTeXMath(math, isDisplayMode: true, textColor: textColor, baseSize: baseSize + 1)
+            result.append(mathAttr)
+            result.append(NSAttributedString(string: "\n"))
+        }
+    }
+    return AttributedString(result)
+}
+
+private func trimTrailingNewlines(_ attr: NSMutableAttributedString) -> NSMutableAttributedString {
+    while attr.length > 0 {
+        let lastCharRange = NSRange(location: attr.length - 1, length: 1)
+        let lastChar = attr.attributedSubstring(from: lastCharRange).string
+        if lastChar == "\n" || lastChar == "\r" || lastChar == " " {
+            attr.deleteCharacters(in: lastCharRange)
+        } else {
+            break
+        }
+    }
+    return attr
+}
+
+private enum MarkdownBlock: Identifiable {
+    case text(NSAttributedString)
+    case table(MarkdownTableData)
+
+    var id: String {
+        switch self {
+        case .text(let attr):
+            return "text-\(attr.string.hashValue)"
+        case .table(let data):
+            return data.id
+        }
+    }
+}
+
+private struct MarkdownTableView: View {
+    let tableData: MarkdownTableData
+    let textColor: UIColor
+
+    private var columnCount: Int {
+        let maxCols = tableData.rows.reduce(tableData.headers.count) { max($0, $1.count) }
+        return max(maxCols, tableData.alignments.count)
+    }
+
+    private func alignment(for col: Int) -> (textAlignment: TextAlignment, frameAlignment: Alignment) {
+        let nsAlign = col < tableData.alignments.count ? tableData.alignments[col] : .left
+        switch nsAlign {
+        case .center:
+            return (.center, .center)
+        case .right:
+            return (.trailing, .trailing)
+        default:
+            return (.leading, .leading)
+        }
+    }
+
+    private func columnWidth(for col: Int) -> (min: CGFloat, max: CGFloat) {
+        var maxLen = 0
+        if col < tableData.headers.count {
+            maxLen = max(maxLen, tableData.headers[col].count)
+        }
+        for row in tableData.rows {
+            if col < row.count {
+                let raw = row[col].replacingOccurrences(of: "<br\\s*/?>", with: " ", options: .regularExpression)
+                maxLen = max(maxLen, raw.count)
+            }
+        }
+        if maxLen <= 10 {
+            return (65, 110)
+        } else if maxLen <= 25 {
+            return (95, 160)
+        } else if maxLen <= 55 {
+            return (130, 220)
+        } else {
+            return (240, 340)
+        }
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
+                // Header row
+                GridRow {
+                    ForEach(0..<columnCount, id: \.self) { c in
+                        let text = c < tableData.headers.count ? tableData.headers[c] : ""
+                        let align = alignment(for: c)
+                        let width = columnWidth(for: c)
+
+                        Text(renderCellAttributedString(text, textColor: .white, isHeader: true, baseSize: 13.5))
+                            .multilineTextAlignment(align.textAlignment)
+                            .frame(minWidth: width.min, maxWidth: width.max, alignment: align.frameAlignment)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .background(Color(red: 24 / 255, green: 28 / 255, blue: 32 / 255))
+                            .overlay(
+                                Rectangle()
+                                    .frame(width: 1)
+                                    .foregroundColor(ChatTheme.border.opacity(0.4)),
+                                alignment: .trailing
+                            )
+                    }
+                }
+                .overlay(
+                    Rectangle()
+                        .frame(height: 1.5)
+                        .foregroundColor(Color(red: 55 / 255, green: 60 / 255, blue: 68 / 255)),
+                    alignment: .bottom
+                )
+
+                // Body rows
+                ForEach(0..<tableData.rows.count, id: \.self) { r in
+                    let row = tableData.rows[r]
+                    let isEven = r % 2 == 0
+                    let isLastRow = r == tableData.rows.count - 1
+
+                    GridRow {
+                        ForEach(0..<columnCount, id: \.self) { c in
+                            let text = c < row.count ? row[c] : ""
+                            let align = alignment(for: c)
+                            let width = columnWidth(for: c)
+
+                            Text(renderCellAttributedString(text, textColor: textColor, isHeader: false, baseSize: 13))
+                                .multilineTextAlignment(align.textAlignment)
+                                .frame(minWidth: width.min, maxWidth: width.max, alignment: align.frameAlignment)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .background(isEven ? Color.clear : Color.white.opacity(0.025))
+                                .overlay(
+                                    Rectangle()
+                                        .frame(width: 1)
+                                        .foregroundColor(ChatTheme.border.opacity(0.3)),
+                                    alignment: .trailing
+                                )
+                                .overlay(
+                                    Rectangle()
+                                        .frame(height: isLastRow ? 0 : 1)
+                                        .foregroundColor(ChatTheme.border.opacity(0.5)),
+                                    alignment: .bottom
+                                )
+                        }
+                    }
+                }
+            }
+            .background(Color(red: 14 / 255, green: 17 / 255, blue: 20 / 255))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(ChatTheme.border, lineWidth: 1)
+            )
+        }
+        .textSelection(.enabled)
+        .padding(.vertical, 4)
+    }
+}
+
+/// A block-aware Markdown renderer. Apple's AttributedString strips the
+/// newline characters around headers/lists/quotes ("# Header\n\nText" becomes
+/// "HeaderText"), so a single Text view can never lay those blocks out
+/// correctly. This view keeps each source line as a real SwiftUI row and
+/// uses AttributedString only for inline formatting within that row.
 private struct MarkdownTextView: View {
     let text: String
     let textColor: UIColor
 
     var body: some View {
-        SelectableMarkdownTextView(attributedText: renderedText, textColor: textColor)
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(blocks) { block in
+                switch block {
+                case .text(let attributedText):
+                    SelectableMarkdownTextView(attributedText: attributedText, textColor: textColor)
+                case .table(let tableData):
+                    MarkdownTableView(tableData: tableData, textColor: textColor)
+                }
+            }
+        }
+    }
+
+    private var blocks: [MarkdownBlock] {
+        var blocksList: [MarkdownBlock] = []
+        var currentText = NSMutableAttributedString()
+
+        for line in lines {
+            switch line {
+            case .tableBlock(let tableData):
+                if currentText.length > 0 {
+                    blocksList.append(.text(trimTrailingNewlines(currentText)))
+                    currentText = NSMutableAttributedString()
+                }
+                blocksList.append(.table(tableData))
+            default:
+                append(line, to: currentText)
+            }
+        }
+        if currentText.length > 0 {
+            blocksList.append(.text(trimTrailingNewlines(currentText)))
+        }
+        if blocksList.isEmpty {
+            return [.text(NSAttributedString())]
+        }
+        return blocksList
     }
 
     private var lines: [MarkdownLine] {
@@ -1261,14 +1691,19 @@ private struct MarkdownTextView: View {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
 
-        for rawLine in normalized.components(separatedBy: "\n") {
+        let allLines = normalized.components(separatedBy: "\n")
+        var i = 0
+        while i < allLines.count {
+            let rawLine = allLines[i]
             let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") {
                 inCodeFence.toggle()
+                i += 1
                 continue
             }
             if inCodeFence {
                 result.append(.code(rawLine))
+                i += 1
                 continue
             }
 
@@ -1295,6 +1730,7 @@ private struct MarkdownTextView: View {
                 } else {
                     currentMathLines.append(rawLine)
                 }
+                i += 1
                 continue
             }
 
@@ -1302,6 +1738,7 @@ private struct MarkdownTextView: View {
                 if trimmed.count > 2 && trimmed.dropFirst(2).hasSuffix("$$") {
                     let math = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespaces)
                     result.append(.mathBlock(math))
+                    i += 1
                     continue
                 } else {
                     inMathFence = true
@@ -1309,12 +1746,14 @@ private struct MarkdownTextView: View {
                     if !rem.isEmpty {
                         currentMathLines.append(rem)
                     }
+                    i += 1
                     continue
                 }
             } else if trimmed.hasPrefix("\\[") {
                 if trimmed.count > 2 && trimmed.dropFirst(2).hasSuffix("\\]") {
                     let math = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespaces)
                     result.append(.mathBlock(math))
+                    i += 1
                     continue
                 } else {
                     inMathFence = true
@@ -1322,7 +1761,32 @@ private struct MarkdownTextView: View {
                     if !rem.isEmpty {
                         currentMathLines.append(rem)
                     }
+                    i += 1
                     continue
+                }
+            }
+
+            // Table detection: check if current line and next line form a markdown table
+            if !inCodeFence && !inMathFence && trimmed.contains("|") && i + 1 < allLines.count {
+                if let alignments = parseTableDelimiterRow(allLines[i + 1]) {
+                    let headers = parseTableRow(trimmed)
+                    if !headers.isEmpty {
+                        var rows: [[String]] = []
+                        var j = i + 2
+                        while j < allLines.count {
+                            let rowLine = allLines[j]
+                            let trimmedRow = rowLine.trimmingCharacters(in: .whitespaces)
+                            if trimmedRow.isEmpty || !rowLine.contains("|") {
+                                break
+                            }
+                            rows.append(parseTableRow(rowLine))
+                            j += 1
+                        }
+                        let tableData = MarkdownTableData(headers: headers, alignments: alignments, rows: rows)
+                        result.append(.tableBlock(tableData))
+                        i = j
+                        continue
+                    }
                 }
             }
 
@@ -1338,11 +1802,10 @@ private struct MarkdownTextView: View {
                 result.append(numbered)
             } else if let bullet = bulletLine(from: trimmed, indent: indentation(of: rawLine)) {
                 result.append(bullet)
-            } else if trimmed.hasPrefix("|") && trimmed.hasSuffix("|") {
-                result.append(.table(trimmed))
             } else {
                 result.append(.text(rawLine))
             }
+            i += 1
         }
         if inMathFence && !currentMathLines.isEmpty {
             result.append(.mathBlock(currentMathLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)))
@@ -1388,14 +1851,6 @@ private struct MarkdownTextView: View {
         ]
     }
 
-    private var renderedText: NSAttributedString {
-        let result = NSMutableAttributedString()
-        for line in lines {
-            append(line, to: result)
-        }
-        return result
-    }
-
     private func append(_ line: MarkdownLine, to result: NSMutableAttributedString) {
         switch line {
         case .blank:
@@ -1438,50 +1893,8 @@ private struct MarkdownTextView: View {
             appendRaw("\n", to: result)
         case .rule:
             appendRaw("────────────────\n", to: result, color: UIColor(ChatTheme.border))
-        case .table(let value):
-            appendRaw(
-                "\(value)\n",
-                to: result,
-                font: UIFont.monospacedSystemFont(ofSize: 14, weight: .regular)
-            )
-        }
-    }
-
-    private func applyRelayInlineStyling(to inline: NSMutableAttributedString, baseSize: CGFloat, defaultColor: UIColor) {
-        inline.enumerateAttribute(.font, in: NSRange(location: 0, length: inline.length)) { fontObj, range, _ in
-            if let font = fontObj as? UIFont {
-                let descriptor = font.fontDescriptor
-                let isBold = descriptor.symbolicTraits.contains(.traitBold)
-                let isItalic = descriptor.symbolicTraits.contains(.traitItalic)
-                let isMono = descriptor.symbolicTraits.contains(.traitMonoSpace)
-
-                let targetFont: UIFont
-                if isMono {
-                    targetFont = UIFont.monospacedSystemFont(ofSize: max(12, baseSize - 2), weight: isBold ? .bold : .regular)
-                } else if isBold && isItalic {
-                    let base = UIFont.systemFont(ofSize: baseSize, weight: .bold)
-                    if let sym = base.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
-                        targetFont = UIFont(descriptor: sym, size: baseSize)
-                    } else {
-                        targetFont = base
-                    }
-                } else if isBold {
-                    targetFont = UIFont.systemFont(ofSize: baseSize, weight: .bold)
-                } else if isItalic {
-                    targetFont = UIFont.italicSystemFont(ofSize: baseSize)
-                } else {
-                    targetFont = UIFont.systemFont(ofSize: baseSize)
-                }
-                inline.addAttribute(.font, value: targetFont, range: range)
-            } else {
-                inline.addAttribute(.font, value: UIFont.systemFont(ofSize: baseSize), range: range)
-            }
-        }
-
-        inline.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: inline.length)) { colorObj, range, _ in
-            if colorObj == nil {
-                inline.addAttribute(.foregroundColor, value: defaultColor, range: range)
-            }
+        case .tableBlock:
+            break
         }
     }
 
