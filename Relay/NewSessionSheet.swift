@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Sheet for creating a new Relay session.
-/// Supports choosing between Claude, Codex, Gemini, OpenRouter, and OmniRoute
+/// Supports choosing between Claude, Codex, two independently authenticated
+/// Gemini providers, OpenRouter, and OmniRoute
 /// backends, validating session names, configuring optional working
 /// directory, dynamic model selection per backend, and optional effort
 /// level (hidden for the free backends, which have none).
@@ -30,7 +31,7 @@ struct NewSessionSheet: View {
 
     // MARK: - Constants
 
-    private let availableBackends: [BackendId] = [.claude, .codex, .gemini, .openrouter, .omniroute]
+    private let availableBackends: [BackendId] = [.claude, .codex, .gemini, .gemini2, .openrouter, .omniroute]
 
     private let effortOptions: [(value: String, label: String)] = [
         ("", "default"),
@@ -126,7 +127,7 @@ struct NewSessionSheet: View {
                     Text(backend.displayName).tag(backend)
                 }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
 
             HStack(alignment: .top, spacing: 8) {
                 Circle()
@@ -410,6 +411,9 @@ struct NewSessionSheet: View {
         case .gemini:
             // Gemini purple (#8e6cef)
             return Color(red: 0.557, green: 0.424, blue: 0.937)
+        case .gemini2:
+            // Gemini 2 teal (#3bb9bd), deliberately distinct from Gemini 1.
+            return Color(red: 0.231, green: 0.725, blue: 0.741)
         case .openrouter:
             // OpenRouter green (#4ade80)
             return Color(red: 0.290, green: 0.871, blue: 0.502)
@@ -421,6 +425,8 @@ struct NewSessionSheet: View {
 
     private var backendDescription: String {
         switch selectedBackend {
+        case .gemini, .gemini2:
+            return "\(selectedBackend.displayName) is independently routed through \(selectedBackend.providerEmail ?? "its Google account"). Its sessions and quota are separate from the other Gemini provider."
         case .openrouter:
             return "OpenRouter is free, no subscription needed — good for quick/simple chats. Claude, Codex, and Gemini are the paid backends; any of them can drop down to a free OpenRouter model later, but never back up to a paid one."
         case .omniroute:

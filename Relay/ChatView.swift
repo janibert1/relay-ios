@@ -1576,15 +1576,15 @@ private struct MarkdownTableView: View {
                             .overlay(
                                 Rectangle()
                                     .frame(width: 1)
-                                    .foregroundColor(ChatTheme.border.opacity(0.4)),
+                                    .foregroundColor(Color.white.opacity(0.18)),
                                 alignment: .trailing
                             )
                     }
                 }
                 .overlay(
                     Rectangle()
-                        .frame(height: 1.5)
-                        .foregroundColor(Color(red: 55 / 255, green: 60 / 255, blue: 68 / 255)),
+                        .frame(height: 2)
+                        .foregroundColor(Color.white.opacity(0.32)),
                     alignment: .bottom
                 )
 
@@ -1609,13 +1609,13 @@ private struct MarkdownTableView: View {
                                 .overlay(
                                     Rectangle()
                                         .frame(width: 1)
-                                        .foregroundColor(ChatTheme.border.opacity(0.3)),
+                                        .foregroundColor(Color.white.opacity(0.15)),
                                     alignment: .trailing
                                 )
                                 .overlay(
                                     Rectangle()
                                         .frame(height: isLastRow ? 0 : 1)
-                                        .foregroundColor(ChatTheme.border.opacity(0.5)),
+                                        .foregroundColor(Color.white.opacity(0.15)),
                                     alignment: .bottom
                                 )
                         }
@@ -1626,7 +1626,7 @@ private struct MarkdownTableView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(ChatTheme.border, lineWidth: 1)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
             )
         }
         .textSelection(.enabled)

@@ -303,6 +303,31 @@ final class RelayAPIClient {
         try await stopSession(sessionName: name)
     }
 
+    /// POST /api/sessions/{name}/park -> SessionSummary (409 if busy or starred)
+    @discardableResult
+    func parkSession(name: String) async throws -> SessionSummary {
+        let escaped = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let url = try makeURL(path: "/api/sessions/\(escaped)/park")
+        return try await perform(makeRequest(url: url, method: "POST"))
+    }
+
+    /// POST /api/sessions/{name}/rehire -> SessionSummary
+    @discardableResult
+    func rehireSession(name: String) async throws -> SessionSummary {
+        let escaped = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let url = try makeURL(path: "/api/sessions/\(escaped)/rehire")
+        return try await perform(makeRequest(url: url, method: "POST"))
+    }
+
+    /// POST /api/sessions/{name}/star (body {"starred": Bool}) -> SessionSummary
+    @discardableResult
+    func starSession(name: String, starred: Bool) async throws -> SessionSummary {
+        let escaped = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let url = try makeURL(path: "/api/sessions/\(escaped)/star")
+        let request = try makeJSONRequest(url: url, method: "POST", body: ["starred": starred])
+        return try await perform(request)
+    }
+
     /// POST /api/sessions/{name}/model (body ModelSwitch) -> SessionSummary
     func switchModel(sessionName: String, modelSwitch: ModelSwitch) async throws -> SessionSummary {
         let escapedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName

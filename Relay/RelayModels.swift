@@ -1,7 +1,7 @@
 import Foundation
 
 enum BackendId: String, Codable, CaseIterable, Equatable, Hashable {
-    case claude, codex, gemini, openrouter, omniroute
+    case claude, codex, gemini, gemini2, openrouter, omniroute
 }
 
 extension BackendId {
@@ -9,7 +9,8 @@ extension BackendId {
         switch self {
         case .claude: return "Claude"
         case .codex: return "Codex"
-        case .gemini: return "Gemini"
+        case .gemini: return "Gemini 1"
+        case .gemini2: return "Gemini 2"
         case .openrouter: return "OpenRouter"
         case .omniroute: return "OmniRoute"
         }
@@ -17,6 +18,16 @@ extension BackendId {
 
     var isFreeBackend: Bool {
         self == .openrouter || self == .omniroute
+    }
+
+    /// The authenticated Google account behind each independently routed
+    /// Antigravity provider. Backend IDs remain stable for API compatibility.
+    var providerEmail: String? {
+        switch self {
+        case .gemini: return "janibertgaming@gmail.com"
+        case .gemini2: return "janalbertdriessen@gmail.com"
+        default: return nil
+        }
     }
 }
 
@@ -168,6 +179,8 @@ struct SessionSummary: Codable, Identifiable, Equatable {
     let effort: String?
     let createdAt: String?
     let lastActivityAt: String?
+    var parked: Bool = false
+    var starred: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case name, backend, status, pid, cwd, model, effort
@@ -176,6 +189,25 @@ struct SessionSummary: Codable, Identifiable, Equatable {
         case lockedToFree = "locked_to_free"
         case createdAt = "created_at"
         case lastActivityAt = "last_activity_at"
+        case parked, starred
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
+        backend = try c.decode(BackendId.self, forKey: .backend)
+        originalBackend = try c.decode(BackendId.self, forKey: .originalBackend)
+        lockedToFree = try c.decode(Bool.self, forKey: .lockedToFree)
+        status = try c.decode(String.self, forKey: .status)
+        pid = try c.decodeIfPresent(Int.self, forKey: .pid)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        effort = try c.decodeIfPresent(String.self, forKey: .effort)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        lastActivityAt = try c.decodeIfPresent(String.self, forKey: .lastActivityAt)
+        parked = try c.decodeIfPresent(Bool.self, forKey: .parked) ?? false
+        starred = try c.decodeIfPresent(Bool.self, forKey: .starred) ?? false
     }
 
     init(

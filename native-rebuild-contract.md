@@ -20,7 +20,7 @@ Base URL: `https://relay.jdries.nl`
 
 ```swift
 enum BackendId: String, Codable, CaseIterable {
-    case claude, codex, gemini, openrouter
+    case claude, codex, gemini, gemini2, openrouter
 }
 
 struct SessionCreate: Codable {
@@ -125,6 +125,13 @@ struct UsageInfo: Codable {
     enum CodingKeys: String, CodingKey { case text, fetchedAt = "fetched_at" }
 }
 ```
+
+## Gemini provider map
+
+The two Gemini values are separate paid providers, not aliases: `gemini`
+(**Gemini 1**) uses `janibertgaming@gmail.com` and `gemini2` (**Gemini 2**)
+uses `janalbertdriessen@gmail.com`. The server routes them through separate
+agent wrappers, session directories, and Antigravity credential homes.
 
 ## Endpoints (exact, already live and working — don't guess variations)
 

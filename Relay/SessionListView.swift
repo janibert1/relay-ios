@@ -11,6 +11,7 @@ struct SessionListView: View {
     @State private var errorMessage: String?
     @State private var isShowingNewSessionSheet = false
     @State private var isShowingUsage = false
+    @State private var showParked = false
     @State private var pollTask: Task<Void, Never>?
     @State private var navigationPath = NavigationPath()
 
@@ -39,6 +40,14 @@ struct SessionListView: View {
             .toolbarBackground(Color(red: 0.039, green: 0.039, blue: 0.039), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showParked.toggle()
+                    } label: {
+                        Image(systemName: showParked ? "archivebox.fill" : "archivebox")
+                    }
+                    .accessibilityLabel(showParked ? "Hide parked sessions" : "Show parked sessions")
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         isShowingUsage = true
@@ -99,9 +108,34 @@ struct SessionListView: View {
 
     private var sessionListView: some View {
         List {
-            ForEach(sessions) { session in
+            ForEach(visibleSessions) { session in
                 NavigationLink(value: session.name) {
                     SessionRowView(session: session)
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button {
+                        Task { await setStarred(session, !session.starred) }
+                    } label: {
+                        Label(session.starred ? "Unstar" : "Star", systemImage: session.starred ? "star.slash" : "star")
+                    }
+                    .tint(.yellow)
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    if session.parked {
+                        Button {
+                            Task { await rehire(session) }
+                        } label: {
+                            Label("Rehire", systemImage: "arrow.uturn.backward")
+                        }
+                        .tint(.green)
+                    } else if !session.starred {
+                        Button {
+                            Task { await park(session) }
+                        } label: {
+                            Label("Park", systemImage: "archivebox")
+                        }
+                        .tint(.orange)
+                    }
                 }
                 .listRowBackground(Color(red: 0.102, green: 0.102, blue: 0.102))
                 .listRowSeparatorTint(Color(red: 0.165, green: 0.165, blue: 0.165))
@@ -117,6 +151,13 @@ struct SessionListView: View {
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 72)
         }
+    }
+
+    /// Starred sessions pin to the top; parked ones are hidden unless the
+    /// archive toggle is on. The server already sorts by last activity.
+    private var visibleSessions: [SessionSummary] {
+        let shown = sessions.filter { showParked || !$0.parked }
+        return shown.filter { $0.starred } + shown.filter { !$0.starred }
     }
 
     private var loadingView: some View {
@@ -208,6 +249,36 @@ struct SessionListView: View {
         pollTask = nil
     }
 
+    @MainActor
+    private func park(_ session: SessionSummary) async {
+        do {
+            _ = try await apiClient.parkSession(name: session.name)
+            await loadSessions()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func rehire(_ session: SessionSummary) async {
+        do {
+            _ = try await apiClient.rehireSession(name: session.name)
+            await loadSessions()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func setStarred(_ session: SessionSummary, _ starred: Bool) async {
+        do {
+            _ = try await apiClient.starSession(name: session.name, starred: starred)
+            await loadSessions()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func openDeepLinkedSessionIfNeeded() {
         guard let sessionName = deepLinkedSessionName else { return }
         navigationPath = NavigationPath([sessionName])
@@ -244,6 +315,12 @@ private struct SessionRowView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 8) {
                 BackendBadge(backend: session.backend)
+
+                if session.starred {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.yellow)
+                }
 
                 Text(session.displayName ?? "New conversation")
                     .font(.system(size: 16, weight: .semibold))
@@ -345,15 +422,7 @@ private struct BackendBadge: View {
         .clipShape(Capsule())
     }
 
-    private var displayName: String {
-        switch backend {
-        case .claude: return "Claude"
-        case .codex: return "Codex"
-        case .gemini: return "Gemini"
-        case .openrouter: return "OpenRouter"
-        case .omniroute: return "OmniRoute"
-        }
-    }
+    private var displayName: String { backend.displayName }
 
     private var accentColor: Color {
         switch backend {
@@ -366,6 +435,9 @@ private struct BackendBadge: View {
         case .gemini:
             // Gemini purple (#8e6cef)
             return Color(red: 0.557, green: 0.424, blue: 0.937)
+        case .gemini2:
+            // Gemini 2 teal (#3bb9bd), distinct from Gemini 1.
+            return Color(red: 0.231, green: 0.725, blue: 0.741)
         case .openrouter:
             // OpenRouter green (#4ade80)
             return Color(red: 0.290, green: 0.871, blue: 0.502)
