@@ -86,6 +86,7 @@ struct ChatView: View {
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var isShowingFileImporter = false
     @State private var isShowingCamera = false
+    @State private var isTogglingAutoContinue = false
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -106,6 +107,7 @@ struct ChatView: View {
 
             VStack(spacing: 0) {
                 subbarView
+                limitBannerView
                 contentView
                 bottomInputBar
             }
@@ -292,6 +294,125 @@ struct ChatView: View {
             text += " (\(effort))"
         }
         return text
+    }
+
+    // MARK: - Limit Reached Banner
+
+    @ViewBuilder
+    private var limitBannerView: some View {
+        if let detail = sessionDetail, detail.limitReached {
+            let isArmed = detail.autoContinue
+            Button {
+                toggleAutoContinue()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isArmed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(isArmed ? ChatTheme.success : ChatTheme.busy)
+
+                    Text(limitBannerText(detail: detail))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(ChatTheme.textPrimary)
+                        .multilineTextAlignment(.leading)
+
+                    Spacer(minLength: 4)
+
+                    if isTogglingAutoContinue {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: isArmed ? ChatTheme.success : ChatTheme.busy))
+                            .scaleEffect(0.7)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    isArmed
+                        ? Color(red: 0.06, green: 0.14, blue: 0.08)
+                        : Color(red: 0.16, green: 0.12, blue: 0.05)
+                )
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(
+                            isArmed
+                                ? Color(red: 0.18, green: 0.45, blue: 0.25)
+                                : Color(red: 0.35, green: 0.25, blue: 0.08),
+                            lineWidth: 1
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(ChatTheme.background)
+            .overlay(
+                Divider().background(ChatTheme.border),
+                alignment: .bottom
+            )
+        }
+    }
+
+    private func limitBannerText(detail: SessionDetail) -> String {
+        if detail.autoContinue {
+            if let resetAt = detail.limitResetAt, let timeStr = formatResetTime(resetAt) {
+                return "Continuing automatically at \(timeStr)"
+            }
+            return "Continuing automatically when limits reset"
+        } else {
+            return "You ran out of limits, continue again automatically"
+        }
+    }
+
+    private func formatResetTime(_ isoString: String) -> String? {
+        let formatter = ISO8601DateFormatter()
+        let date: Date?
+        if let parsed = formatter.date(from: isoString) {
+            date = parsed
+        } else {
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            date = formatter.date(from: isoString)
+        }
+        guard let date else { return nil }
+        let df = DateFormatter()
+        df.timeStyle = .short
+        return df.string(from: date)
+    }
+
+    private func toggleAutoContinue() {
+        guard let detail = sessionDetail, !isTogglingAutoContinue else { return }
+        let target = !detail.autoContinue
+        isTogglingAutoContinue = true
+        let impact = UIImpactFeedbackGenerator(style: .medium)
+        impact.prepare()
+        impact.impactOccurred()
+
+        var copy = detail
+        copy.autoContinue = target
+        sessionDetail = copy
+
+        Task {
+            do {
+                let updated = try await apiClient.setAutoContinue(name: sessionName, enabled: target)
+                await MainActor.run {
+                    if var current = sessionDetail {
+                        current.autoContinue = updated.autoContinue
+                        current.autoContinueAt = updated.autoContinueAt
+                        sessionDetail = current
+                    }
+                    isTogglingAutoContinue = false
+                }
+            } catch {
+                await MainActor.run {
+                    if var current = sessionDetail {
+                        current.autoContinue = !target
+                        sessionDetail = current
+                    }
+                    errorMessage = "Failed to toggle auto-continue: \(error.localizedDescription)"
+                    isTogglingAutoContinue = false
+                }
+            }
+        }
     }
 
     // MARK: - Main Content

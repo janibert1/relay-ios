@@ -328,6 +328,20 @@ final class RelayAPIClient {
         return try await perform(request)
     }
 
+    /// POST /api/sessions/{name}/auto-continue (body {"enabled": Bool}) -> SessionSummary
+    @discardableResult
+    func setAutoContinue(sessionName: String, enabled: Bool = true) async throws -> SessionSummary {
+        let escaped = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName
+        let url = try makeURL(path: "/api/sessions/\(escaped)/auto-continue")
+        let request = try makeJSONRequest(url: url, method: "POST", body: ["enabled": enabled])
+        return try await perform(request)
+    }
+
+    @discardableResult
+    func setAutoContinue(name: String, enabled: Bool = true) async throws -> SessionSummary {
+        try await setAutoContinue(sessionName: name, enabled: enabled)
+    }
+
     /// POST /api/sessions/{name}/model (body ModelSwitch) -> SessionSummary
     func switchModel(sessionName: String, modelSwitch: ModelSwitch) async throws -> SessionSummary {
         let escapedName = sessionName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? sessionName

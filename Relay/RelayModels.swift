@@ -181,6 +181,10 @@ struct SessionSummary: Codable, Identifiable, Equatable {
     let lastActivityAt: String?
     var parked: Bool = false
     var starred: Bool = false
+    var limitReached: Bool = false
+    var limitResetAt: String? = nil
+    var autoContinue: Bool = false
+    var autoContinueAt: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case name, backend, status, pid, cwd, model, effort
@@ -190,6 +194,10 @@ struct SessionSummary: Codable, Identifiable, Equatable {
         case createdAt = "created_at"
         case lastActivityAt = "last_activity_at"
         case parked, starred
+        case limitReached = "limit_reached"
+        case limitResetAt = "limit_reset_at"
+        case autoContinue = "auto_continue"
+        case autoContinueAt = "auto_continue_at"
     }
 
     init(from decoder: Decoder) throws {
@@ -208,6 +216,10 @@ struct SessionSummary: Codable, Identifiable, Equatable {
         lastActivityAt = try c.decodeIfPresent(String.self, forKey: .lastActivityAt)
         parked = try c.decodeIfPresent(Bool.self, forKey: .parked) ?? false
         starred = try c.decodeIfPresent(Bool.self, forKey: .starred) ?? false
+        limitReached = try c.decodeIfPresent(Bool.self, forKey: .limitReached) ?? false
+        limitResetAt = try c.decodeIfPresent(String.self, forKey: .limitResetAt)
+        autoContinue = try c.decodeIfPresent(Bool.self, forKey: .autoContinue) ?? false
+        autoContinueAt = try c.decodeIfPresent(String.self, forKey: .autoContinueAt)
     }
 
     init(
@@ -222,7 +234,13 @@ struct SessionSummary: Codable, Identifiable, Equatable {
         model: String? = nil,
         effort: String? = nil,
         createdAt: String? = nil,
-        lastActivityAt: String? = nil
+        lastActivityAt: String? = nil,
+        parked: Bool = false,
+        starred: Bool = false,
+        limitReached: Bool = false,
+        limitResetAt: String? = nil,
+        autoContinue: Bool = false,
+        autoContinueAt: String? = nil
     ) {
         self.name = name
         self.displayName = displayName
@@ -236,6 +254,12 @@ struct SessionSummary: Codable, Identifiable, Equatable {
         self.effort = effort
         self.createdAt = createdAt
         self.lastActivityAt = lastActivityAt
+        self.parked = parked
+        self.starred = starred
+        self.limitReached = limitReached
+        self.limitResetAt = limitResetAt
+        self.autoContinue = autoContinue
+        self.autoContinueAt = autoContinueAt
     }
 }
 
@@ -253,20 +277,54 @@ struct SessionDetail: Codable, Identifiable, Equatable {
     let effort: String?
     let createdAt: String?
     let lastActivityAt: String?
+    var parked: Bool = false
+    var starred: Bool = false
+    var limitReached: Bool = false
+    var limitResetAt: String? = nil
+    var autoContinue: Bool = false
+    var autoContinueAt: String? = nil
     let turns: [Turn]
     let transcriptMode: String      // "structured" | "raw_snapshot"
     let queuedMessages: [QueuedMessage]
 
     enum CodingKeys: String, CodingKey {
-        case name, backend, status, pid, cwd, model, effort
+        case name, backend, status, pid, cwd, model, effort, turns, parked, starred
         case displayName = "display_name"
         case originalBackend = "original_backend"
         case lockedToFree = "locked_to_free"
         case createdAt = "created_at"
         case lastActivityAt = "last_activity_at"
-        case turns
         case transcriptMode = "transcript_mode"
         case queuedMessages = "queued_messages"
+        case limitReached = "limit_reached"
+        case limitResetAt = "limit_reset_at"
+        case autoContinue = "auto_continue"
+        case autoContinueAt = "auto_continue_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
+        backend = try c.decode(BackendId.self, forKey: .backend)
+        originalBackend = try c.decode(BackendId.self, forKey: .originalBackend)
+        lockedToFree = try c.decode(Bool.self, forKey: .lockedToFree)
+        status = try c.decode(String.self, forKey: .status)
+        pid = try c.decodeIfPresent(Int.self, forKey: .pid)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        effort = try c.decodeIfPresent(String.self, forKey: .effort)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+        lastActivityAt = try c.decodeIfPresent(String.self, forKey: .lastActivityAt)
+        turns = try c.decodeIfPresent([Turn].self, forKey: .turns) ?? []
+        transcriptMode = try c.decodeIfPresent(String.self, forKey: .transcriptMode) ?? "structured"
+        queuedMessages = try c.decodeIfPresent([QueuedMessage].self, forKey: .queuedMessages) ?? []
+        parked = try c.decodeIfPresent(Bool.self, forKey: .parked) ?? false
+        starred = try c.decodeIfPresent(Bool.self, forKey: .starred) ?? false
+        limitReached = try c.decodeIfPresent(Bool.self, forKey: .limitReached) ?? false
+        limitResetAt = try c.decodeIfPresent(String.self, forKey: .limitResetAt)
+        autoContinue = try c.decodeIfPresent(Bool.self, forKey: .autoContinue) ?? false
+        autoContinueAt = try c.decodeIfPresent(String.self, forKey: .autoContinueAt)
     }
 
     var summary: SessionSummary {
@@ -282,7 +340,13 @@ struct SessionDetail: Codable, Identifiable, Equatable {
             model: model,
             effort: effort,
             createdAt: createdAt,
-            lastActivityAt: lastActivityAt
+            lastActivityAt: lastActivityAt,
+            parked: parked,
+            starred: starred,
+            limitReached: limitReached,
+            limitResetAt: limitResetAt,
+            autoContinue: autoContinue,
+            autoContinueAt: autoContinueAt
         )
     }
 
@@ -301,7 +365,13 @@ struct SessionDetail: Codable, Identifiable, Equatable {
         lastActivityAt: String? = nil,
         turns: [Turn] = [],
         transcriptMode: String = "structured",
-        queuedMessages: [QueuedMessage] = []
+        queuedMessages: [QueuedMessage] = [],
+        parked: Bool = false,
+        starred: Bool = false,
+        limitReached: Bool = false,
+        limitResetAt: String? = nil,
+        autoContinue: Bool = false,
+        autoContinueAt: String? = nil
     ) {
         self.name = name
         self.displayName = displayName
@@ -318,6 +388,12 @@ struct SessionDetail: Codable, Identifiable, Equatable {
         self.turns = turns
         self.transcriptMode = transcriptMode
         self.queuedMessages = queuedMessages
+        self.parked = parked
+        self.starred = starred
+        self.limitReached = limitReached
+        self.limitResetAt = limitResetAt
+        self.autoContinue = autoContinue
+        self.autoContinueAt = autoContinueAt
     }
 }
 
